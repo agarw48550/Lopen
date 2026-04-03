@@ -1,0 +1,49 @@
+lopen:
+  name: Lopen
+  wake_word: Lopen
+  log_level: INFO
+  log_dir: logs/
+
+llm:
+  model_path: models/llm/model.gguf
+  context_window: 2048
+  temperature: 0.7
+  max_tokens: 512
+  memory_conservative: true  # unload model between calls
+
+memory:
+  max_turns: 20
+  summary_threshold: 15  # summarise when turns exceed this
+
+voice:
+  enabled: true
+  microphone_index: null  # null = default
+  sample_rate: 16000
+  wake_word: Lopen
+  asr_binary: null  # path to whisper.cpp binary, null = auto-detect
+  tts_binary: null  # path to piper binary, null = auto-detect
+  tts_voice: en_US-ryan-high  # male voice
+
+whatsapp:
+  enabled: false  # set to true after QR scan setup
+  poll_interval: 30  # seconds
+  headless: true
+
+web_dashboard:
+  host: 0.0.0.0
+  port: 8080
+  cors_origins:
+    - "*"
+
+orchestrator:
+  host: 0.0.0.0
+  port: 8000
+  workers: 1  # single worker to stay within 4 GB RAM target
+
+health:
+  ram_threshold_gb: 4.0
+  ram_warning_gb: 3.0
+  disk_free_threshold_gb: 5.0
+  log_rotation_threshold_mb: 50
+  heartbeat_interval: 60  # seconds
+  cache_cleanup_interval: 86400  # daily (seconds)

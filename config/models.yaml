@@ -1,0 +1,25 @@
+models:
+  llm:
+    name: "Phi-3-mini-4k-instruct-q4"
+    filename: "Phi-3-mini-4k-instruct-q4.gguf"
+    url: "https://huggingface.co/microsoft/Phi-3-mini-4k-instruct-gguf/resolve/main/Phi-3-mini-4k-instruct-q4.gguf"
+    size_gb: 2.2
+    context_window: 4096
+    local_path: "models/llm/"
+
+  asr:
+    name: "whisper-tiny"
+    binary: "whisper.cpp"
+    model_file: "ggml-tiny.en.bin"
+    url: "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-tiny.en.bin"
+    size_mb: 39
+    local_path: "models/asr/"
+
+  tts:
+    name: "piper-ryan-high"
+    voice: "en_US-ryan-high"
+    model_file: "en_US-ryan-high.onnx"
+    url: "https://huggingface.co/rhasspy/piper-voices/resolve/v1.0.0/en/en_US/ryan/high/en_US-ryan-high.onnx"
+    config_url: "https://huggingface.co/rhasspy/piper-voices/resolve/v1.0.0/en/en_US/ryan/high/en_US-ryan-high.onnx.json"
+    size_mb: 65
+    local_path: "models/tts/"

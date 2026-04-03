@@ -1,0 +1,36 @@
+tools:
+  homework_tutor:
+    enabled: true
+    requires_permission: false
+    description: "Educational tutor for homework questions"
+    tags: ["education", "llm"]
+
+  researcher:
+    enabled: true
+    requires_permission: false
+    description: "Web research using DuckDuckGo"
+    tags: ["web", "search"]
+
+  coder_assist:
+    enabled: true
+    requires_permission: false
+    description: "Code explanation, review and generation"
+    tags: ["coding", "llm"]
+
+  desktop_organizer:
+    enabled: true
+    requires_permission: true
+    description: "Organise Desktop files into folders by type"
+    tags: ["filesystem", "macos"]
+
+  browser_automation:
+    enabled: true
+    requires_permission: true
+    description: "Playwright-based browser automation"
+    tags: ["web", "automation"]
+
+  file_ops:
+    enabled: true
+    requires_permission: true
+    description: "Safe file read/write/search within approved directories"
+    tags: ["filesystem"]

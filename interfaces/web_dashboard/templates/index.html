@@ -1,0 +1,130 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Lopen Dashboard</title>
+    <style>
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+               background: #0f0f14; color: #e0e0e0; min-height: 100vh; }
+        header { background: #1a1a2e; padding: 1rem 2rem;
+                 display: flex; align-items: center; gap: 1rem;
+                 border-bottom: 1px solid #2a2a3e; }
+        header h1 { font-size: 1.5rem; color: #7b8cff; }
+        header .badge { background: #22c55e; color: #000; font-size: 0.7rem;
+                        padding: 2px 8px; border-radius: 999px; font-weight: 700; }
+        main { display: grid; grid-template-columns: 1fr 1fr; gap: 1.5rem;
+               padding: 2rem; max-width: 1200px; margin: 0 auto; }
+        .card { background: #1a1a2e; border: 1px solid #2a2a3e; border-radius: 12px; padding: 1.5rem; }
+        .card h2 { font-size: 1rem; color: #7b8cff; margin-bottom: 1rem; text-transform: uppercase;
+                   letter-spacing: 0.05em; }
+        .chat-box { grid-column: 1 / -1; }
+        #chat-history { min-height: 200px; max-height: 300px; overflow-y: auto;
+                        background: #0f0f14; border-radius: 8px; padding: 1rem;
+                        margin-bottom: 1rem; font-size: 0.9rem; line-height: 1.6; }
+        .msg-user { color: #7b8cff; margin-bottom: 0.5rem; }
+        .msg-assistant { color: #e0e0e0; margin-bottom: 0.8rem; }
+        .input-row { display: flex; gap: 0.5rem; }
+        #chat-input { flex: 1; background: #0f0f14; border: 1px solid #2a2a3e;
+                      color: #e0e0e0; border-radius: 8px; padding: 0.6rem 1rem; font-size: 0.95rem; }
+        button { background: #7b8cff; color: #000; border: none; border-radius: 8px;
+                 padding: 0.6rem 1.2rem; cursor: pointer; font-weight: 600; font-size: 0.9rem; }
+        button:hover { background: #9aa8ff; }
+        .task-list { list-style: none; }
+        .task-item { background: #0f0f14; border-radius: 6px; padding: 0.5rem 0.8rem;
+                     margin-bottom: 0.5rem; font-size: 0.85rem; display: flex; gap: 0.5rem; align-items: center; }
+        .status-pending { color: #facc15; }
+        .status-running { color: #60a5fa; }
+        .status-done { color: #22c55e; }
+        .status-failed { color: #f87171; }
+        .turn-list { list-style: none; max-height: 200px; overflow-y: auto; }
+        .turn-item { font-size: 0.85rem; padding: 0.3rem 0; border-bottom: 1px solid #1e1e30; }
+        .turn-item .role { color: #7b8cff; font-weight: 600; margin-right: 0.4rem; }
+        .empty { color: #555; font-style: italic; font-size: 0.85rem; }
+    </style>
+</head>
+<body>
+    <header>
+        <h1>🤖 Lopen</h1>
+        <span class="badge">ONLINE</span>
+    </header>
+
+    <main>
+        <!-- Chat -->
+        <div class="card chat-box">
+            <h2>💬 Chat</h2>
+            <div id="chat-history">
+                <div class="msg-assistant">Hello! I'm Lopen. How can I help you today?</div>
+            </div>
+            <div class="input-row">
+                <input id="chat-input" type="text" placeholder="Ask Lopen anything…" autocomplete="off" />
+                <button onclick="sendChat()">Send</button>
+            </div>
+        </div>
+
+        <!-- Tasks -->
+        <div class="card">
+            <h2>📋 Recent Tasks</h2>
+            <ul class="task-list" id="task-list">
+                {% for task in tasks %}
+                <li class="task-item">
+                    <span class="status-{{ task.status }}">{{ task.status.upper() }}</span>
+                    <span>{{ task.intent }}</span>
+                    <span style="color:#888; font-size:0.8rem">{{ task.payload }}</span>
+                </li>
+                {% else %}
+                <li class="empty">No tasks yet.</li>
+                {% endfor %}
+            </ul>
+        </div>
+
+        <!-- Memory -->
+        <div class="card">
+            <h2>🧠 Conversation Memory</h2>
+            <ul class="turn-list" id="memory-list">
+                {% for turn in memory_turns %}
+                <li class="turn-item">
+                    <span class="role">{{ turn.role }}</span>{{ turn.content }}
+                </li>
+                {% else %}
+                <li class="empty">No memory recorded yet.</li>
+                {% endfor %}
+            </ul>
+        </div>
+    </main>
+
+    <script>
+        const chatHistory = document.getElementById('chat-history');
+        const chatInput = document.getElementById('chat-input');
+
+        function appendMsg(role, text) {
+            const div = document.createElement('div');
+            div.className = role === 'user' ? 'msg-user' : 'msg-assistant';
+            div.textContent = (role === 'user' ? 'You: ' : 'Lopen: ') + text;
+            chatHistory.appendChild(div);
+            chatHistory.scrollTop = chatHistory.scrollHeight;
+        }
+
+        async function sendChat() {
+            const query = chatInput.value.trim();
+            if (!query) return;
+            chatInput.value = '';
+            appendMsg('user', query);
+            try {
+                const res = await fetch('/chat', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({query})
+                });
+                const data = await res.json();
+                appendMsg('assistant', data.response || '(empty response)');
+            } catch (e) {
+                appendMsg('assistant', 'Error: ' + e.message);
+            }
+        }
+
+        chatInput.addEventListener('keydown', e => { if (e.key === 'Enter') sendChat(); });
+    </script>
+</body>
+</html>
