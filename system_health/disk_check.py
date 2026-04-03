@@ -5,7 +5,7 @@ from __future__ import annotations
 import logging
 import shutil
 from pathlib import Path
-from typing import Optional
+from typing import Callable, Optional
 
 logger = logging.getLogger(__name__)
 
@@ -17,7 +17,7 @@ class DiskCheck:
         self,
         path: str = "/",
         threshold_gb: float = 5.0,
-        on_alert: Optional[callable] = None,
+        on_alert: Optional[Callable[[dict], None]] = None,
     ) -> None:
         self.path = path
         self.threshold_gb = threshold_gb

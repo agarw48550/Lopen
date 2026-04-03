@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import logging
 import os
-from typing import Optional
+from typing import Callable, Optional
 
 logger = logging.getLogger(__name__)
 
@@ -24,7 +24,7 @@ class RamWatchdog:
         warning_gb: float = 3.0,
         critical_gb: float = 4.0,
         process_name_filter: str = "lopen",
-        on_critical: Optional[callable] = None,
+        on_critical: Optional[Callable[[], None]] = None,
     ) -> None:
         self.warning_gb = warning_gb
         self.critical_gb = critical_gb
