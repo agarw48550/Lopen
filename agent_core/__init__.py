@@ -6,6 +6,12 @@ from agent_core.tool_registry import ToolRegistry
 from agent_core.permissions import PermissionLevel, permission_required
 from agent_core.task_queue import TaskQueue, Task, TaskStatus
 from agent_core.memory import ConversationMemory
+from agent_core.intent_engine import IntentEngine, IntentResult
+from agent_core.plugin_loader import PluginLoader
+from agent_core.tool_selector import ToolSelector
+from agent_core.argument_composer import ArgumentComposer
+from agent_core.analytics import Analytics
+from agent_core.sandbox import ConfirmationGate, ConfirmationRequest
 
 __all__ = [
     "Planner",
@@ -18,4 +24,12 @@ __all__ = [
     "Task",
     "TaskStatus",
     "ConversationMemory",
+    "IntentEngine",
+    "IntentResult",
+    "PluginLoader",
+    "ToolSelector",
+    "ArgumentComposer",
+    "Analytics",
+    "ConfirmationGate",
+    "ConfirmationRequest",
 ]

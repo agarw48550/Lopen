@@ -1,10 +1,26 @@
-"""Lopen Orchestrator — main entry point wiring all components together."""
+"""Lopen Orchestrator — main entry point wiring all components together.
+
+New in this version:
+  - Dynamic intent recognition via :class:`~agent_core.intent_engine.IntentEngine`
+    (TF-IDF cosine similarity, no extra RAM or model downloads).
+  - Automatic plugin discovery via :class:`~agent_core.plugin_loader.PluginLoader`
+    (drop a file in ``tools/`` or ``tools/third_party/`` and it is picked up).
+  - Semantic tool selection via :class:`~agent_core.tool_selector.ToolSelector`
+    routing open-ended queries to the best available tool.
+  - Argument extraction via :class:`~agent_core.argument_composer.ArgumentComposer`.
+  - Confirmation gate via :class:`~agent_core.sandbox.ConfirmationGate` for
+    risky / low-confidence tool invocations.
+  - Usage analytics via :class:`~agent_core.analytics.Analytics` (local SQLite only).
+  - New REST endpoints: ``GET /plugins``, ``POST /plugins/reload``,
+    ``GET /analytics``, ``POST /feedback``.
+"""
 
 from __future__ import annotations
 
 import logging
 import logging.config
 import os
+import time
 from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Any, AsyncGenerator
@@ -122,6 +138,54 @@ def _startup() -> None:
     _state["registry"] = registry
     _register_tools(registry, router_obj, llm)
 
+    # Intent Engine — semantic TF-IDF matching (near-zero RAM)
+    from agent_core.intent_engine import IntentEngine
+    intent_engine = IntentEngine(llm_adapter=llm)
+    _state["intent_engine"] = intent_engine
+
+    # Populate intent engine index from already-registered tools
+    for tool_meta in registry.list_tools():
+        intent_engine.index_tool(tool_meta.name, tool_meta.description, tool_meta.tags)
+
+    # Plugin Loader — dynamic discovery from tools/ and tools/third_party/
+    plugin_cfg = settings.get("plugin_loader", {})
+    tool_dirs = plugin_cfg.get("tool_dirs", ["tools", "tools/third_party"])
+    from agent_core.plugin_loader import PluginLoader
+    plugin_loader = PluginLoader(tool_dirs=tool_dirs, llm_adapter=llm)
+    _state["plugin_loader"] = plugin_loader
+
+    if plugin_cfg.get("auto_discover", True):
+        _discover_plugins(plugin_loader, registry, router_obj, intent_engine)
+
+    # Tool Selector — ranks tools by semantic relevance
+    from agent_core.tool_selector import ToolSelector
+    tool_selector = ToolSelector(intent_engine)
+    _state["tool_selector"] = tool_selector
+
+    # Argument Composer
+    from agent_core.argument_composer import ArgumentComposer
+    arg_composer = ArgumentComposer(llm_adapter=llm)
+    _state["arg_composer"] = arg_composer
+
+    # Analytics (local SQLite only)
+    analytics_cfg = settings.get("analytics", {})
+    from agent_core.analytics import Analytics
+    analytics = Analytics(
+        db=db if analytics_cfg.get("log_to_db", True) else None,
+        enabled=analytics_cfg.get("enabled", True),
+    )
+    _state["analytics"] = analytics
+
+    # Confirmation Gate / Sandbox
+    sandbox_cfg = settings.get("sandbox", {})
+    from agent_core.sandbox import ConfirmationGate
+    confirmation_gate = ConfirmationGate(
+        confidence_threshold=sandbox_cfg.get("confidence_threshold", 0.3),
+        auto_approve_known_tools=sandbox_cfg.get("auto_approve_known_tools", True),
+        min_uses_for_auto_approve=sandbox_cfg.get("min_uses_for_auto_approve", 3),
+    )
+    _state["confirmation_gate"] = confirmation_gate
+
     # Task Queue
     from agent_core.task_queue import TaskQueue
     task_queue = TaskQueue(max_size=100)
@@ -192,6 +256,28 @@ def _register_tools(registry: Any, router_obj: Any, llm: Any) -> None:
 
     router_obj.register_handler("llm_general", llm_general)
     logger.info("Registered %d tools", len(registry))
+
+
+def _discover_plugins(
+    plugin_loader: Any,
+    registry: Any,
+    router_obj: Any,
+    intent_engine: Any,
+) -> None:
+    """Scan plugin directories, register any new tools found, and index them."""
+    try:
+        new_metas = plugin_loader.scan(skip_existing=True)
+        for meta in new_metas:
+            try:
+                registry.re_register(meta)
+                if meta.instance is not None:
+                    router_obj.register_handler(meta.name, meta.instance)
+                intent_engine.index_tool(meta.name, meta.description, meta.tags)
+                logger.info("Dynamic plugin registered: %s", meta.name)
+            except Exception as exc:
+                logger.warning("Could not register plugin %s: %s", meta.name, exc)
+    except Exception as exc:
+        logger.error("Plugin discovery failed: %s", exc)
 
 
 def _start_scheduler(settings: dict) -> None:
@@ -291,9 +377,7 @@ async def status() -> dict[str, Any]:
 
 
 @router.post("/chat", tags=["Chat"])
-async def chat(request: "Request") -> dict[str, str]:
-    from fastapi.responses import JSONResponse  # noqa: F401  kept for future use
-
+async def chat(request: "Request") -> dict[str, Any]:
     body = await request.json() if hasattr(request, "json") else {}
     query: str = body.get("query", "").strip()
     if not query:
@@ -302,6 +386,12 @@ async def chat(request: "Request") -> dict[str, str]:
     planner = _state.get("planner")
     router_obj = _state.get("router")
     memory = _state.get("memory")
+    intent_engine = _state.get("intent_engine")
+    tool_selector = _state.get("tool_selector")
+    arg_composer = _state.get("arg_composer")
+    registry = _state.get("registry")
+    analytics = _state.get("analytics")
+    confirmation_gate = _state.get("confirmation_gate")
 
     if not planner or not router_obj:
         return {"response": "[Orchestrator] Agent not initialised yet."}
@@ -309,19 +399,87 @@ async def chat(request: "Request") -> dict[str, str]:
     if memory:
         memory.add_turn("user", query)
 
-    intent = planner.classify_intent(query)
+    start_ms = time.time() * 1000
+    selected_tool_name = "llm_general"
+    confidence = 0.0
+
+    # --- Dynamic routing via semantic tool selection ---
+    if intent_engine and tool_selector and registry:
+        available_tools = registry.list_tools(enabled_only=True)
+        best_tool, confidence = tool_selector.select_best(query, available_tools)
+
+        if best_tool is not None and confidence > 0.0:
+            selected_tool_name = best_tool.name
+
+            # Log intent analytics
+            if analytics:
+                intent_result = intent_engine.analyze(query)
+                analytics.log_intent(
+                    query=query,
+                    structured_intent=intent_result.structured_intent,
+                    confidence=confidence,
+                    selected_tool=selected_tool_name,
+                )
+
+            # Check confirmation gate
+            if confirmation_gate:
+                confirmation_req = confirmation_gate.check(best_tool, query, confidence)
+                if confirmation_req is not None:
+                    return {
+                        "response": confirmation_req.prompt,
+                        "needs_confirmation": True,
+                        "tool": selected_tool_name,
+                        "confidence": round(confidence, 3),
+                    }
+
+    # --- Execute via Router (with dynamic tool_name override) ---
+    # Compose arguments for the selected tool
+    kwargs: dict[str, Any] = {}
+    if arg_composer and selected_tool_name != "llm_general":
+        kwargs = arg_composer.compose(query, tool_name=selected_tool_name)
+        # Remove the redundant "query" key — it's passed as positional arg
+        kwargs.pop("query", None)
+
     try:
-        response = await router_obj.route_async(intent, query)
+        handler = router_obj._handlers.get(selected_tool_name) or router_obj._handlers.get("llm_general")
+        if handler is None:
+            # Absolute fallback: keyword-based planner
+            intent = planner.classify_intent(query)
+            response = await router_obj.route_async(intent, query)
+        else:
+            import asyncio
+            import inspect
+            if inspect.iscoroutinefunction(handler):
+                response = await handler(query, **kwargs)
+            else:
+                loop = asyncio.get_event_loop()
+                response = await loop.run_in_executor(None, lambda: handler(query, **kwargs))
         response_str = str(response)
+        success = True
     except Exception as exc:
         logger.error("Chat error: %s", exc)
         response_str = f"Error processing request: {exc}"
+        success = False
+
+    latency_ms = time.time() * 1000 - start_ms
+
+    # Record analytics
+    if analytics:
+        analytics.log_tool_use(selected_tool_name, query, success, latency_ms)
+
+    # Update confirmation gate counter
+    if confirmation_gate:
+        confirmation_gate.record_use(selected_tool_name, success=success)
 
     if memory:
         memory.add_turn("assistant", response_str)
         memory.save_to_db()
 
-    return {"response": response_str, "intent": intent.value}
+    return {
+        "response": response_str,
+        "tool": selected_tool_name,
+        "confidence": round(confidence, 3),
+    }
 
 
 @router.get("/tasks", tags=["Tasks"])
@@ -341,6 +499,81 @@ async def get_tasks() -> dict[str, Any]:
             for t in task_queue.list_tasks()
         ]
     }
+
+
+@router.get("/plugins", tags=["Plugins"])
+async def list_plugins() -> dict[str, Any]:
+    """List all registered tools/plugins and their metadata."""
+    registry = _state.get("registry")
+    if not registry:
+        return {"plugins": []}
+    return {
+        "plugins": [
+            {
+                "name": t.name,
+                "description": t.description,
+                "version": t.version,
+                "enabled": t.enabled,
+                "requires_permission": t.requires_permission,
+                "tags": t.tags,
+            }
+            for t in registry.list_tools()
+        ]
+    }
+
+
+@router.post("/plugins/reload", tags=["Plugins"])
+async def reload_plugins() -> dict[str, Any]:
+    """Re-scan plugin directories and register any newly discovered tools."""
+    plugin_loader = _state.get("plugin_loader")
+    registry = _state.get("registry")
+    router_obj = _state.get("router")
+    intent_engine = _state.get("intent_engine")
+
+    if not plugin_loader or not registry or not router_obj:
+        return {"status": "error", "message": "Plugin loader not initialised"}
+
+    try:
+        new_metas = plugin_loader.scan(skip_existing=False)
+        registered: list[str] = []
+        for meta in new_metas:
+            try:
+                registry.re_register(meta)
+                if meta.instance is not None:
+                    router_obj.register_handler(meta.name, meta.instance)
+                if intent_engine:
+                    intent_engine.index_tool(meta.name, meta.description, meta.tags)
+                registered.append(meta.name)
+            except Exception as exc:
+                logger.warning("Reload: could not register %s: %s", meta.name, exc)
+        return {"status": "ok", "registered": registered, "count": len(registered)}
+    except Exception as exc:
+        logger.error("Plugin reload failed: %s", exc)
+        return {"status": "error", "message": str(exc)}
+
+
+@router.get("/analytics", tags=["Analytics"])
+async def get_analytics() -> dict[str, Any]:
+    """Return usage analytics summary."""
+    analytics = _state.get("analytics")
+    if not analytics:
+        return {"error": "Analytics not initialised"}
+    return analytics.get_stats()
+
+
+@router.post("/feedback", tags=["Analytics"])
+async def post_feedback(request: "Request") -> dict[str, str]:
+    """Record user feedback for a tool response (RL signal)."""
+    body = await request.json() if hasattr(request, "json") else {}
+    tool_name: str = body.get("tool", "unknown")
+    query: str = body.get("query", "")
+    was_helpful: bool = bool(body.get("helpful", True))
+
+    analytics = _state.get("analytics")
+    if analytics:
+        analytics.log_feedback(tool_name, query, was_helpful)
+
+    return {"status": "recorded"}
 
 
 app.include_router(router)

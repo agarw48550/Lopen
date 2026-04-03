@@ -18,6 +18,8 @@ class ToolMeta:
     enabled: bool = True
     tags: list[str] = field(default_factory=list)
     instance: Optional[Any] = field(default=None, repr=False)
+    tool_class: Optional[Any] = field(default=None, repr=False)
+    """The class used to (re-)instantiate the tool, set by :class:`~agent_core.plugin_loader.PluginLoader`."""
 
 
 class ToolRegistry:
@@ -37,6 +39,17 @@ class ToolRegistry:
             raise ValueError(f"Tool '{meta.name}' is already registered.")
         self._tools[meta.name] = meta
         logger.info("Tool registered: %s (enabled=%s)", meta.name, meta.enabled)
+
+    def re_register(self, meta: ToolMeta) -> None:
+        """Register or replace a tool — idempotent, does not raise on duplicates."""
+        existed = meta.name in self._tools
+        self._tools[meta.name] = meta
+        logger.info(
+            "Tool %s: %s (enabled=%s)",
+            "re-registered" if existed else "registered",
+            meta.name,
+            meta.enabled,
+        )
 
     def unregister(self, name: str) -> bool:
         """Remove a tool by name. Returns True if it existed."""
