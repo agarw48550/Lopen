@@ -2,7 +2,152 @@
 
 **Lopen** is a production-ready, local-first autonomous assistant framework that runs entirely on your Mac. It uses an **intent-driven, plugin-extensible architecture** to handle any open-ended user request — routing it semantically to the best available tool, without hardcoded mappings or pre-defined task lists.
 
-**New in this release:** AirLLM-backed large-model inference, OMLX-inspired multi-agent orchestration, NemoClaw-inspired safety guardrails, and curated best-fit offline models.
+Designed for a **2017 Intel MacBook Pro** (8 GB RAM, target ≤4 GB runtime) — no cloud, no subscriptions, all private.
+
+---
+
+## ⚡ One-Command Install
+
+```bash
+git clone https://github.com/agarw48550/Lopen && cd Lopen
+bash install.sh
+```
+
+The installer will:
+1. Check your OS and Python version
+2. Install Homebrew dependencies (cmake, ffmpeg, portaudio)
+3. Create a Python virtual environment in `.venv/`
+4. Install all Python requirements
+5. Optionally install `llama-cpp-python` for local LLM
+6. Download AI models (Phi-3-mini + whisper-tiny + Piper TTS)
+7. Run self-diagnostics to verify everything works
+
+---
+
+## 🚀 Quick Start
+
+```bash
+# Activate environment and start all services
+source .venv/bin/activate
+bash scripts/start.sh
+
+# Open the web dashboard
+open http://localhost:8080
+
+# Launch the interactive CLI
+python cli.py
+```
+
+### Interactive CLI
+
+```
+  _
+ | |    ___  _ __   ___ _ __
+ | |   / _ \| '_ \ / _ \ '_ \
+ | |__| (_) | |_) |  __/ | | |
+ |_____\___/| .__/ \___|_| |_|
+            |_|
+
+  Your local-first autonomous assistant. No cloud required. 🖥️
+
+  Systems nominal. Type 'help' for commands.
+
+  Host: http://localhost:8000  |  Session: cli-1711234567
+
+lopen › chat write a Python hello-world function
+lopen › status
+lopen › plugins
+lopen › debug on
+lopen › benchmark
+lopen › joke
+lopen › quit
+```
+
+**CLI commands:**
+
+| Command | Description |
+|---------|-------------|
+| `chat <message>` | Send a message to the agent |
+| `status` | Service health, RAM usage, uptime |
+| `plugins` | List loaded plugins and tools |
+| `history` | Show recent conversation turns |
+| `config` | Print active configuration |
+| `debug on\|off` | Toggle verbose debug output |
+| `benchmark` | Run inference speed test |
+| `help` | Show all commands |
+
+**Fun extras:** `joke`, `haiku`, `sing`, `quote`, `about`, `fortune`, `matrix`, `coffee`
+
+```bash
+# Start CLI with debug output
+python cli.py --debug
+
+# Connect to a remote instance
+python cli.py --host my-macbook.local --port 8000
+```
+
+---
+
+## 🔧 Debugging & Diagnostics
+
+```bash
+# Full self-diagnostics (OS, Python, RAM, models, services)
+bash scripts/diagnose.sh
+
+# Check running service status
+bash scripts/status.sh
+
+# Start with verbose debug logging (LOPEN_DEBUG=1)
+bash scripts/start.sh --debug
+
+# Tail logs
+tail -f logs/lopen.log
+tail -f logs/lopen_error.log
+tail -f logs/lopen_debug.log  # created in debug mode
+```
+
+**Debug mode** activates via:
+- `bash scripts/start.sh --debug`
+- `LOPEN_DEBUG=1 bash scripts/start.sh`
+- `python cli.py --debug`
+- `LOPEN_LOG_LEVEL=DEBUG python cli.py`
+
+**Structured logs** in `logs/`:
+- `lopen.log` — standard operation log (50 MB rotating, 5 backups)
+- `lopen_error.log` — errors only (10 MB rotating, 3 backups)
+- `lopen_debug.log` — verbose debug trace (20 MB rotating, 3 backups)
+
+---
+
+## 🏃 Benchmark
+
+```bash
+# Run inference speed test
+bash scripts/benchmark.sh
+
+# Verbose mode (shows responses)
+bash scripts/benchmark.sh --verbose
+```
+
+Target performance on a 2017 Intel MacBook Pro with Phi-3-mini Q4_K_M:
+- Simple queries: < 3s 🚀
+- Medium complexity: 3–8s ✅
+- Complex queries: 8–15s ⚠️
+
+---
+
+## 🖥️ Web Dashboard (Port 8080)
+
+The web gateway provides multiplatform control from any browser — laptop, phone, or tablet — on your local network:
+
+- **Live chat** with the agent (real-time streaming)
+- **Connection status** with auto-reconnect and uptime display
+- **System status panel** — LLM mode, tools loaded, memory turns
+- **Plugin management** — list and reload plugins live
+- **Memory viewer** — browse conversation history with clear button
+- **Responsive layout** — works on mobile screens
+
+Access from your MacBook Air: `http://[your-mac-ip]:8080`
 
 ---
 
@@ -125,32 +270,29 @@ See [docs/AI_ARCHITECTURE.md](docs/AI_ARCHITECTURE.md) for the complete guide.
 ## Quick Start (5 Steps)
 
 ```bash
-# 1. Install system dependencies (macOS + Homebrew)
-bash scripts/bootstrap.sh
+# 1. One-command install (recommended)
+bash install.sh
 
-# 2. Create Python venv and install packages
-bash scripts/setup_venv.sh
+# OR manually:
+bash scripts/bootstrap.sh      # Install system dependencies
+bash scripts/setup_venv.sh     # Create Python venv + install packages
+bash scripts/download_models.sh  # Download AI models (~2.3 GB)
+cp .env.example .env           # Copy config
 
-# 3. Download AI models (~2.3 GB total)
-bash scripts/download_models.sh
-
-# 4. Copy and configure environment
-cp .env.example .env
-# Edit .env if needed
-
-# 5. Start all services
+# 2. Start all services
 bash scripts/start.sh
-```
 
-Then open http://localhost:8080 in your browser.
+# 3. Open the dashboard
+open http://localhost:8080
 
-**One-command verification:**
-```bash
+# 4. Launch the interactive CLI
+python cli.py
+
+# 5. Verify (run tests)
 python -m pytest tests/ -q
-# → 247 passed (includes safety, multi-agent, and airllm engine tests)
+# → 275 passed
 ```
 
----
 
 ## Model Options
 
@@ -188,16 +330,22 @@ bash scripts/download_models.sh --mistral
 
 | Method | Path               | Description                                     |
 |--------|--------------------|-------------------------------------------------|
-| POST   | `/chat`            | Query with safety checks + multi-agent routing  |
-| GET    | `/safety`          | Safety engine status and configuration          |
-| GET    | `/agents`          | Multi-agent dispatcher pool status              |
+| GET    | `/health`          | Health check + uptime                           |
 | GET    | `/status`          | Extended status (LLM, safety, agents, tasks)    |
+| POST   | `/chat`            | Query with safety checks + multi-agent routing  |
+| GET    | `/memory`          | Get conversation history                        |
+| DELETE | `/memory`          | Clear conversation history                      |
 | GET    | `/plugins`         | List all registered plugins with metadata       |
 | POST   | `/plugins/reload`  | Rescan `tools/` dirs, register new plugins      |
 | GET    | `/analytics`       | Usage statistics (tool counts, success rates)   |
 | POST   | `/feedback`        | Submit helpfulness signal for RL tracking       |
+| GET    | `/safety`          | Safety engine status and configuration          |
+| GET    | `/agents`          | Multi-agent dispatcher pool status              |
+
+Both `query` and `message` field names are accepted by `/chat` for compatibility.
 
 ---
+
 
 ## Adding a Plugin
 
@@ -227,9 +375,19 @@ See [PLUGINS.md](PLUGINS.md) for the full plugin development guide.
 
 ## Installation
 
+### One-Command Install (Recommended)
+
+```bash
+bash install.sh              # full install with model download prompt
+bash install.sh --no-models  # skip model downloads (install later)
+bash install.sh --debug      # verbose output
+```
+
+### Manual Installation
+
 ### Requirements
 - macOS 12+ (Monterey or newer)
-- Python 3.11+
+- Python 3.9+ (Python 3.11 recommended)
 - Homebrew
 
 ### Step-by-step
@@ -253,11 +411,20 @@ bash scripts/download_models.sh
 # Start all services
 bash scripts/start.sh
 
+# Start with debug logging
+bash scripts/start.sh --debug
+
 # Stop all services
 bash scripts/stop.sh
 
 # Check status
 bash scripts/status.sh
+
+# Full self-diagnostics
+bash scripts/diagnose.sh
+
+# Inference benchmark
+bash scripts/benchmark.sh
 
 # Health check
 bash scripts/health_check.sh
@@ -315,19 +482,83 @@ Enable/disable individual tools and configure permissions.
 
 ## Troubleshooting
 
+### Run self-diagnostics first
+
+```bash
+bash scripts/diagnose.sh
+```
+
+This checks OS, Python, RAM, disk, models, services, and config — and tells you what to fix.
+
 ### "LLM in MOCK mode"
-Download a GGUF model: `bash scripts/download_models.sh`
+
+Download a GGUF model:
+
+```bash
+bash scripts/download_models.sh
+# or manually:
+mkdir -p models/llm
+curl -L -o models/llm/model.gguf "https://huggingface.co/microsoft/Phi-3-mini-4k-instruct-gguf/resolve/main/Phi-3-mini-4k-instruct-q4.gguf"
+```
+
+Then install `llama-cpp-python`:
+
+```bash
+CMAKE_ARGS="-DGGML_METAL=OFF" pip install "llama-cpp-python>=0.2.57"
+```
 
 ### "ASR in mock mode"
-Build whisper.cpp from https://github.com/ggerganov/whisper.cpp and place the binary in PATH.
+
+Build whisper.cpp:
+
+```bash
+git clone https://github.com/ggerganov/whisper.cpp
+cd whisper.cpp && make
+cp main /usr/local/bin/whisper
+```
+
+Or install a pre-built binary from [the releases page](https://github.com/ggerganov/whisper.cpp/releases).
 
 ### Port already in use
-Check for existing processes: `bash scripts/status.sh` then `bash scripts/stop.sh`
+
+```bash
+bash scripts/status.sh   # see what's running
+bash scripts/stop.sh     # stop all services
+# Or kill specific PID:
+lsof -ti:8000 | xargs kill -9
+```
 
 ### High RAM usage
+
 1. Ensure `llm.memory_conservative: true` in `config/settings.yaml`
 2. Check `bash scripts/health_check.sh` for RAM report
 3. Reduce `llm.context_window` to 1024
+4. Disable multi-agent: `multi_agent.enabled: false`
+5. Run diagnostics: `bash scripts/diagnose.sh`
+
+### CLI can't connect
+
+```bash
+# Check orchestrator is running
+bash scripts/status.sh
+
+# Start if not running
+bash scripts/start.sh
+
+# Try debug mode
+python cli.py --debug
+```
+
+### Services crash immediately
+
+```bash
+# Check the error log
+cat logs/lopen_error.log
+
+# Run with debug mode
+bash scripts/start.sh --debug
+cat logs/lopen_debug.log
+```
 
 ---
 
@@ -335,7 +566,19 @@ Check for existing processes: `bash scripts/status.sh` then `bash scripts/stop.s
 
 ```bash
 source .venv/bin/activate
+
+# Full test suite
 pytest tests/ -v --tb=short
+# → 275 passed
+
+# CLI tests only
+pytest tests/test_cli.py -v
+
+# Safety engine tests
+pytest tests/test_safety.py -v
+
+# Smoke tests (requires running services)
+pytest tests/smoke/ -v
 ```
 
 ---
