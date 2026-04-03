@@ -15,6 +15,38 @@ memory:
   max_turns: 20
   summary_threshold: 15  # summarise when turns exceed this
 
+# ---------------------------------------------------------------------------
+# General-purpose intent & routing (no extra RAM — pure Python TF-IDF)
+# ---------------------------------------------------------------------------
+intent_engine:
+  confidence_threshold: 0.2   # below this, fall back to keyword-based planner
+  top_k_tools: 3               # how many candidate tools to consider per query
+
+# ---------------------------------------------------------------------------
+# Plugin loader — scans tool dirs and third-party plugins automatically
+# ---------------------------------------------------------------------------
+plugin_loader:
+  enabled: true
+  auto_discover: true
+  tool_dirs:
+    - tools
+    - tools/third_party
+
+# ---------------------------------------------------------------------------
+# Confirmation / sandbox gate
+# ---------------------------------------------------------------------------
+sandbox:
+  confidence_threshold: 0.3      # require confirmation below this confidence
+  auto_approve_known_tools: true  # skip confirmation for well-used tools
+  min_uses_for_auto_approve: 3    # uses needed to become "known"
+
+# ---------------------------------------------------------------------------
+# Usage analytics (local SQLite only — no network calls)
+# ---------------------------------------------------------------------------
+analytics:
+  enabled: true
+  log_to_db: true
+
 voice:
   enabled: true
   microphone_index: null  # null = default
