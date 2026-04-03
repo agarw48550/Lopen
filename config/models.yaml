@@ -164,6 +164,87 @@ models:
       notes: "Slightly faster than high quality. Alternative male voice."
 
   # -------------------------------------------------------------------------
+  # Audio-to-audio voice model (replaces ASR+TTS pipeline where supported)
+  # -------------------------------------------------------------------------
+  # LiquidAI/LFM2.5-Audio-1.5B — primary real-time voice model (April 2026)
+  #
+  # Why chosen over alternatives:
+  #   • Direct audio→audio: no ASR/TTS round-trip (saves ~200 ms latency)
+  #   • English + Hindi + Chinese end-to-end (SeamlessM4T requires 3.8 GB)
+  #   • Emotion recognition from paralinguistic cues (Orpheus-3B: EN only)
+  #   • Emotion-conditioned synthesis via prosody tokens
+  #   • Tool-call JSON output for agentic interactions
+  #   • 1.5B / ~0.9 GB (bfloat16) or ~0.5 GB (4-bit) — fits alongside Qwen
+  #
+  # Alternative models surveyed (April 2026) — switch via voice.audio_model:
+  #   lfm25-audio-1.5b      (DEFAULT) — best balance of speed/quality/features
+  #   speecht5               — EN-only, TTS-only, no emotion, 0.4 GB — fallback
+  #   seamless-streaming     — best quality, 3.8 GB, too heavy for 4 GB budget
+  #   orpheus-3b             — EN TTS only, no emotion recognition, 2.0 GB
+  #   kokoro-82m             — ultra-fast TTS fallback, EN+FR+ZH, 0.1 GB
+  #
+  # Memory budget with Qwen3.5-0.8B + LFM2.5-Audio (4-bit):
+  #   LFM2.5-Audio (4-bit):  ~0.5 GB
+  #   Qwen3.5-0.8B Q4_K_M:   ~0.55 GB
+  #   Python + FastAPI:       ~0.35 GB
+  #   Total:                  ~1.4 GB  ✓ (2.6 GB headroom within 4 GB budget)
+  audio:
+    active: "lfm25-audio-1.5b"
+
+    lfm25-audio-1.5b:
+      name: "LFM2.5-Audio-1.5B"
+      model_id: "LiquidAI/LFM2.5-Audio-1.5B"
+      size_gb: 0.9
+      size_gb_quantized: 0.5
+      quantization: "4bit"
+      languages: ["en", "hi", "zh"]
+      features:
+        audio_to_audio: true
+        emotion_recognition: true
+        emotion_synthesis: true
+        tool_calling: true
+        multilingual: true
+      local_path: "models/audio/"
+      notes: >
+        Primary real-time voice model. Direct audio-to-audio with no TTS/STT
+        round-trip. Supports EN/HI/ZH. Emotion recognition + conditioned
+        synthesis. Tool-call JSON output. ~0.5 GB 4-bit quantised.
+      install: "pip install transformers torch accelerate"
+      huggingface_url: "https://huggingface.co/LiquidAI/LFM2.5-Audio-1.5B"
+
+    speecht5:
+      name: "SpeechT5"
+      model_id: "microsoft/speecht5_tts"
+      size_gb: 0.4
+      languages: ["en"]
+      features:
+        audio_to_audio: false
+        emotion_recognition: false
+        emotion_synthesis: false
+        tool_calling: false
+        multilingual: false
+      notes: >
+        Lightweight TTS fallback (EN only). Use when LFM2.5-Audio unavailable
+        and macOS 'say' command is not sufficient. No emotion support.
+      install: "pip install transformers torch"
+
+    kokoro-82m:
+      name: "Kokoro-82M"
+      model_id: "hexgrad/Kokoro-82M"
+      size_gb: 0.1
+      languages: ["en", "fr", "zh"]
+      features:
+        audio_to_audio: false
+        emotion_recognition: false
+        emotion_synthesis: false
+        tool_calling: false
+        multilingual: true
+      notes: >
+        Ultra-fast TTS fallback. EN/FR/ZH. 82 M params, <0.1 GB. No emotion.
+        Use as last-resort TTS when Piper is unavailable.
+      install: "pip install kokoro"
+
+  # -------------------------------------------------------------------------
   # Optional: Embedding model for RAG / semantic search
   # -------------------------------------------------------------------------
   # all-MiniLM-L6-v2 — tiny sentence-transformer, 22 MB, 384-dim embeddings

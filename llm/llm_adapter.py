@@ -16,17 +16,60 @@ Supported chat formats:
   - "phi3"    — Phi-3-mini  (<|user|>…<|end|>)
   - "llama2"  — Llama-2/Mistral legacy  ([INST] … [/INST])
   - "raw"     — no special tokens (use for base/non-instruct models)
+
+Thinking modes (Qwen3.5-0.8B):
+  - ThinkingMode.AUTO       — automatic selection based on query complexity
+  - ThinkingMode.THINKING   — enables <think> chain-of-thought block; best for
+                              reasoning, planning, tool use, and multi-step tasks
+  - ThinkingMode.NON_THINKING — disables CoT; fastest, lowest latency; best for
+                                simple Q&A, completions, and voice replies
 """
 
 from __future__ import annotations
 
 import logging
 import os
+import re
 import subprocess
+from enum import Enum
 from pathlib import Path
 from typing import Any, Optional
 
 logger = logging.getLogger(__name__)
+
+
+# ---------------------------------------------------------------------------
+# Thinking mode
+# ---------------------------------------------------------------------------
+
+class ThinkingMode(str, Enum):
+    """Qwen3.5 thinking / non-thinking mode selector.
+
+    AUTO selects the mode based on keyword heuristics applied to the user
+    prompt at call time.  The other values force a specific mode.
+    """
+    AUTO = "auto"
+    THINKING = "thinking"
+    NON_THINKING = "non_thinking"
+
+
+# Keywords that suggest a task needs deep reasoning (→ THINKING mode)
+_THINKING_KEYWORDS: frozenset[str] = frozenset({
+    "plan", "reason", "explain", "analyse", "analyze", "compare", "evaluate",
+    "debug", "fix", "code", "implement", "design", "architecture", "review",
+    "research", "summarise", "summarize", "translate", "calculate", "prove",
+    "step by step", "step-by-step", "think", "help me understand", "how does",
+    "why does", "what is the difference", "write a", "create a", "build a",
+    "tool", "function", "script",
+})
+
+
+def _infer_thinking_mode(prompt: str) -> ThinkingMode:
+    """Heuristic: detect whether a prompt needs deep reasoning."""
+    lower = prompt.lower()
+    # If more than one reasoning keyword appears, enable thinking
+    hits = sum(1 for kw in _THINKING_KEYWORDS if kw in lower)
+    return ThinkingMode.THINKING if hits >= 1 else ThinkingMode.NON_THINKING
 
 _LLAMA_CPP_PYTHON_AVAILABLE = False
 try:
@@ -35,21 +78,54 @@ try:
 except ImportError:
     pass
 
+# ---------------------------------------------------------------------------
+# Thinking-mode prompt helpers (Qwen3.5 specific)
+# ---------------------------------------------------------------------------
+
+_THINKING_ENABLE_SUFFIX = "\n/think"   # appended to user turn to enable CoT
+_THINKING_DISABLE_SUFFIX = "\n/no_think"  # appended to user turn to disable CoT
+
+_THINK_TAG_RE = re.compile(r"<think>.*?</think>", re.DOTALL)
+
+
+def _strip_think_tags(text: str) -> str:
+    """Remove Qwen3.5 <think>…</think> block from a response."""
+    return _THINK_TAG_RE.sub("", text).strip()
+
 
 # ---------------------------------------------------------------------------
 # Chat format helpers
 # ---------------------------------------------------------------------------
 
-def _build_prompt(text: str, chat_format: str = "chatml", system: str = "") -> str:
-    """Wrap *text* in the correct instruct template for the active model."""
+def _build_prompt(
+    text: str,
+    chat_format: str = "chatml",
+    system: str = "",
+    thinking_mode: ThinkingMode = ThinkingMode.NON_THINKING,
+) -> str:
+    """Wrap *text* in the correct instruct template for the active model.
+
+    For Qwen3.5 (chatml format) the ``thinking_mode`` controls whether a
+    chain-of-thought ``<think>`` block is generated:
+    - THINKING     → appends ``/think`` to enable deep reasoning
+    - NON_THINKING → appends ``/no_think`` to skip CoT (fastest)
+    - AUTO         → determined upstream via ``_infer_thinking_mode``
+    """
     sys_msg = system or (
         "You are Lopen, a helpful local AI assistant running on macOS. "
         "Be concise and accurate."
     )
     if chat_format == "chatml":
+        # Qwen3.5 thinking/non-thinking control
+        if thinking_mode == ThinkingMode.THINKING:
+            user_turn = text + _THINKING_ENABLE_SUFFIX
+        elif thinking_mode == ThinkingMode.NON_THINKING:
+            user_turn = text + _THINKING_DISABLE_SUFFIX
+        else:
+            user_turn = text
         return (
             f"<|im_start|>system\n{sys_msg}<|im_end|>\n"
-            f"<|im_start|>user\n{text}<|im_end|>\n"
+            f"<|im_start|>user\n{user_turn}<|im_end|>\n"
             f"<|im_start|>assistant\n"
         )
     if chat_format == "phi3":
@@ -109,6 +185,11 @@ class LLMAdapter:
     - Default context_window=2048 (was 4096) — halves memory & first-token latency
     - Default max_tokens=256 (was 512) — faster replies for most tasks
     - Qwen3.5-0.8B Q4_K_M: ~0.55 GB, 8-12 tok/s → first response <1s
+
+    Thinking mode (Qwen3.5):
+    - ThinkingMode.AUTO         — automatically choose based on query content
+    - ThinkingMode.THINKING     — enable <think> CoT block (deep reasoning)
+    - ThinkingMode.NON_THINKING — skip CoT (fastest, default for simple tasks)
     """
 
     def __init__(
@@ -121,6 +202,7 @@ class LLMAdapter:
         llama_binary: Optional[str] = None,
         chat_format: str = "chatml",
         system_prompt: str = "",
+        thinking_mode: ThinkingMode = ThinkingMode.AUTO,
     ) -> None:
         # Resolve model path: prefer explicit arg, then env, then default location
         self.model_path = (
@@ -134,6 +216,7 @@ class LLMAdapter:
         self.memory_conservative = memory_conservative
         self.chat_format = chat_format
         self.system_prompt = system_prompt
+        self.thinking_mode = thinking_mode
         self._stop_tokens = _default_stop_tokens(chat_format)
         self._llama_binary = _find_llama_binary(llama_binary)
         self._llama_instance: Optional[Any] = None
@@ -147,12 +230,13 @@ class LLMAdapter:
             self._mode = "mock"
 
         logger.info(
-            "LLMAdapter mode=%s model=%s ctx=%d max_tok=%d format=%s",
+            "LLMAdapter mode=%s model=%s ctx=%d max_tok=%d format=%s thinking=%s",
             self._mode,
             Path(self.model_path).name,
             self.context_window,
             self.max_tokens,
             self.chat_format,
+            self.thinking_mode.value,
         )
         if self._mode == "mock":
             logger.warning(
@@ -179,16 +263,47 @@ class LLMAdapter:
         else:
             return self._mock_response(prompt, tokens)
 
-    def chat(self, message: str, max_tokens: Optional[int] = None, **kwargs: Any) -> str:
+    def chat(
+        self,
+        message: str,
+        max_tokens: Optional[int] = None,
+        thinking_mode: Optional[ThinkingMode] = None,
+        **kwargs: Any,
+    ) -> str:
         """Generate a chat response.
 
         Wraps *message* in the correct instruct template for the active model
         (ChatML for Qwen3.5, Phi-3 format for Phi-3-mini, etc.) then calls
         ``generate()``.  Use this instead of ``generate()`` for all conversational
         or task-oriented queries.
+
+        Args:
+            message: The user message / query.
+            max_tokens: Override token budget for this call.
+            thinking_mode: Override the adapter-level thinking mode for this
+                call.  ``None`` uses the adapter default (``self.thinking_mode``).
+                Pass ``ThinkingMode.AUTO`` to auto-detect from *message* content.
         """
-        prompt = _build_prompt(message, self.chat_format, self.system_prompt)
-        return self.generate(prompt, max_tokens=max_tokens, **kwargs)
+        # Resolve effective thinking mode for this call
+        effective_mode = thinking_mode if thinking_mode is not None else self.thinking_mode
+        if effective_mode == ThinkingMode.AUTO:
+            effective_mode = _infer_thinking_mode(message)
+            logger.debug(
+                "ThinkingMode.AUTO resolved to %s for prompt: %r",
+                effective_mode.value,
+                message[:60],
+            )
+
+        prompt = _build_prompt(message, self.chat_format, self.system_prompt, effective_mode)
+        raw = self.generate(prompt, max_tokens=max_tokens, **kwargs)
+
+        # Strip <think>…</think> blocks from the user-facing reply so that the
+        # chain-of-thought is transparent but not shown in the final answer.
+        if effective_mode == ThinkingMode.THINKING and self.chat_format == "chatml":
+            cleaned = _strip_think_tags(raw)
+            if cleaned:
+                return cleaned
+        return raw
 
     def unload(self) -> None:
         """Free the loaded model from memory (used when memory_conservative=True)."""
