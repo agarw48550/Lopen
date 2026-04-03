@@ -14,3 +14,19 @@ playwright>=1.41.0
 numpy>=1.26.4
 pytest>=8.0.0
 pytest-asyncio>=0.23.0
+
+# ---------------------------------------------------------------------------
+# Optional AI backends (install what you need — see docs/AI_ARCHITECTURE.md)
+# ---------------------------------------------------------------------------
+
+# llama-cpp-python: GGUF model inference (recommended for Phi-3-mini and other 3-4B models)
+# Install with: pip install "llama-cpp-python>=0.2.57"
+# llama-cpp-python>=0.2.57
+
+# AirLLM: layer-split inference for 7B+ models within 4 GB RAM
+# Install with: pip install airllm
+# airllm>=0.2.0
+
+# sentence-transformers: semantic embedding for vector memory / RAG
+# Install with: pip install sentence-transformers
+# sentence-transformers>=2.6.0

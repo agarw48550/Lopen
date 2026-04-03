@@ -70,7 +70,13 @@ class TestModelsYaml:
     def test_llm_model_spec(self) -> None:
         with open(CONFIG_DIR / "models.yaml") as f:
             cfg = yaml.safe_load(f)
-        llm = cfg["models"]["llm"]
+        llm_section = cfg["models"]["llm"]
+        # New structure: llm.active points to the active model entry
+        active_key = llm_section.get("active")
+        if active_key:
+            llm = llm_section[active_key]
+        else:
+            llm = llm_section  # legacy flat structure
         assert "filename" in llm
         assert "url" in llm
         assert llm["size_gb"] > 0
@@ -78,14 +84,24 @@ class TestModelsYaml:
     def test_asr_model_spec(self) -> None:
         with open(CONFIG_DIR / "models.yaml") as f:
             cfg = yaml.safe_load(f)
-        asr = cfg["models"]["asr"]
+        asr_section = cfg["models"]["asr"]
+        active_key = asr_section.get("active")
+        if active_key:
+            asr = asr_section[active_key]
+        else:
+            asr = asr_section
         assert "model_file" in asr
         assert "url" in asr
 
     def test_tts_model_spec(self) -> None:
         with open(CONFIG_DIR / "models.yaml") as f:
             cfg = yaml.safe_load(f)
-        tts = cfg["models"]["tts"]
+        tts_section = cfg["models"]["tts"]
+        active_key = tts_section.get("active")
+        if active_key:
+            tts = tts_section[active_key]
+        else:
+            tts = tts_section
         assert "voice" in tts
         assert "url" in tts
 

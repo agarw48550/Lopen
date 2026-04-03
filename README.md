@@ -2,41 +2,45 @@
 
 **Lopen** is a production-ready, local-first autonomous assistant framework that runs entirely on your Mac. It uses an **intent-driven, plugin-extensible architecture** to handle any open-ended user request — routing it semantically to the best available tool, without hardcoded mappings or pre-defined task lists.
 
+**New in this release:** AirLLM-backed large-model inference, OMLX-inspired multi-agent orchestration, NemoClaw-inspired safety guardrails, and curated best-fit offline models.
+
 ---
 
 ## Architecture Overview
 
 ```
-                         User Query (any natural language)
-                                    │
-                          ┌─────────▼──────────┐
-                          │   IntentEngine      │  ← TF-IDF cosine similarity
-                          │  (semantic match)   │    no model downloads, <1 MB RAM
-                          └─────────┬──────────┘
-                                    │  scores every registered tool
-                          ┌─────────▼──────────┐
-                          │   ToolSelector      │  ← ranks by relevance
-                          └─────────┬──────────┘
-                                    │
-                          ┌─────────▼──────────┐
-                          │  ConfirmationGate   │  ← sandbox / permission check
-                          └─────────┬──────────┘
-                                    │
-                          ┌─────────▼──────────┐
-                          │  ArgumentComposer   │  ← extract paths, URLs, code, etc.
-                          └─────────┬──────────┘
-                                    │
-                          ┌─────────▼──────────┐
-                          │   Tool.run(query)   │  ← any registered BaseTool
-                          └─────────┬──────────┘
-                                    │
-                          ┌─────────▼──────────┐
-                          │     Analytics       │  ← local SQLite, no network
-                          └────────────────────┘
-
-Plugin discovery (startup + POST /plugins/reload):
-  tools/            ← built-in tools
-  tools/third_party ← drop your .py files here → auto-discovered
+                     User Query (any interface)
+                            │
+                 ┌──────────▼──────────┐
+                 │   SafetyEngine      │  ← NemoClaw-inspired guardrails
+                 │   check_input()     │    pattern + topic blocklist, PII redaction
+                 └──────────┬──────────┘
+                            │  (if safe)
+                 ┌──────────▼──────────┐
+                 │   IntentEngine      │  ← TF-IDF cosine similarity
+                 │  (semantic match)   │    no model downloads, <1 MB RAM
+                 └──────────┬──────────┘
+                            │  scores every registered tool
+                 ┌──────────▼──────────┐
+                 │   ToolSelector      │  ← ranks + safety tool check
+                 └──────────┬──────────┘
+                            │
+              ┌─────────────▼─────────────────┐
+              │    AgentDispatcher (OMLX)      │  ← multi-agent reasoning
+              │  planner → executor → reflector│    LRU memory eviction
+              └──────────────┬────────────────┘
+                             │
+              ┌──────────────▼────────────────┐
+              │       AirLLMEngine             │  ← AirLLM / llama-cpp-python
+              │  (layer-split or GGUF backend)  │    mock fallback for CI
+              └──────────────┬────────────────┘
+                             │
+                 ┌───────────▼──────────┐
+                 │   SafetyEngine       │  ← output PII redaction
+                 │   check_output()     │
+                 └───────────┬──────────┘
+                             │
+                      Final Response
 ```
 
 ```
@@ -44,10 +48,16 @@ Plugin discovery (startup + POST /plugins/reload):
 │                        Lopen Orchestrator (port 8000)                       │
 │  ┌──────────────┐  ┌──────────────┐  ┌──────────────┐  ┌────────────────┐  │
 │  │IntentEngine  │→ │ToolSelector  │→ │Tool Registry │  │  Task Queue    │  │
-│  │ (TF-IDF)     │  │              │  │+ PluginLoader│  │                │  │
+│  │ (TF-IDF)     │  │+ ToolFilter  │  │+ PluginLoader│  │                │  │
 │  └──────────────┘  └──────────────┘  └──────────────┘  └────────────────┘  │
 │  ┌──────────────────────────────────────────────────────────────────────┐   │
-│  │                  LLM Adapter (llama.cpp / mock)                      │   │
+│  │        AirLLMEngine (airllm → llama_cpp → mock, auto-select)        │   │
+│  └──────────────────────────────────────────────────────────────────────┘   │
+│  ┌──────────────────────────────────────────────────────────────────────┐   │
+│  │   AgentDispatcher: planner | executor | reflector | summarizer       │   │
+│  └──────────────────────────────────────────────────────────────────────┘   │
+│  ┌──────────────────────────────────────────────────────────────────────┐   │
+│  │   SafetyEngine: input guardrails | tool filter | output redaction    │   │
 │  └──────────────────────────────────────────────────────────────────────┘   │
 │  ┌──────────────────────────────────────────────────────────────────────┐   │
 │  │     Conversation Memory  ←→  SQLite Storage + Analytics             │   │
@@ -75,10 +85,40 @@ Unlike assistants with hardcoded intent→tool mappings, Lopen uses **semantic r
    cosine similarity over their descriptions and tags.  No fixed enum mappings.
 3. **Plugin extensibility** — drop a Python file in `tools/third_party/` and it
    is automatically discovered, indexed, and becomes available for routing.
-4. **Confirmation gate** — low-confidence or high-risk tool invocations ask for
+4. **Multi-agent reasoning** — planner/executor/reflector agents collaborate on
+   complex queries, with LRU memory eviction to stay within 4 GB RAM.
+5. **Safety guardrails** — NemoClaw-inspired input/output checks block harmful
+   content and redact PII before it reaches the user.
+6. **Confirmation gate** — low-confidence or high-risk tool invocations ask for
    user approval before executing.
-5. **Local analytics** — every intent and tool use is logged to SQLite for
+7. **Local analytics** — every intent and tool use is logged to SQLite for
    offline RL evaluation.
+
+---
+
+## New AI Components
+
+### 1. AirLLM Engine (`llm/airllm_engine.py`)
+Efficient large-model inference inspired by [lyogavin/airllm](https://github.com/lyogavin/airllm).
+- Layer-by-layer CPU scheduling — loads only 1–2 transformer layers at a time
+- Supports 7B Q4_K_M models within 4 GB RAM (with AirLLM backend)
+- Auto-selects best backend: `airllm` → `llama_cpp` → `mock`
+- Configurable via `config/settings.yaml` (`llm.engine`)
+
+### 2. Multi-Agent Dispatcher (`agent_core/multi_agent.py`)
+OMLX-inspired parallel agent orchestration ([jundot/omlx](https://github.com/jundot/omlx)).
+- **Planner** decomposes queries → **Executor** generates answers → **Reflector** checks quality
+- LRU eviction ensures only active agents consume RAM
+- Configurable agent pool in `config/agents.yaml`
+
+### 3. Safety Engine (`agent_core/safety.py`)
+NemoClaw-inspired guardrails ([NVIDIA/NeMo-Guardrails](https://github.com/NVIDIA/NeMo-Guardrails)).
+- Input guardrails: pattern/topic blocklist (bomb-making, CSAM, etc.)
+- Tool filter: per-tool allowlist/denylist
+- Output guardrails: PII redaction (SSN, email, phone, credit card)
+- Fully configurable opt-in/opt-out via `config/settings.yaml`
+
+See [docs/AI_ARCHITECTURE.md](docs/AI_ARCHITECTURE.md) for the complete guide.
 
 ---
 
@@ -91,7 +131,7 @@ bash scripts/bootstrap.sh
 # 2. Create Python venv and install packages
 bash scripts/setup_venv.sh
 
-# 3. Download AI models (~2.5 GB total)
+# 3. Download AI models (~2.3 GB total)
 bash scripts/download_models.sh
 
 # 4. Copy and configure environment
@@ -104,6 +144,29 @@ bash scripts/start.sh
 
 Then open http://localhost:8080 in your browser.
 
+**One-command verification:**
+```bash
+python -m pytest tests/ -q
+# → 247 passed (includes safety, multi-agent, and airllm engine tests)
+```
+
+---
+
+## Model Options
+
+| Model stack | RAM usage | LLM quality | Notes |
+|------------|-----------|-------------|-------|
+| **Default** (Phi-3-mini Q4_K_M) | ~2.7 GB | ★★★★☆ | Multi-agent capable |
+| **Smart** (Mistral-7B Q4_K_M + AirLLM) | ~4.0 GB | ★★★★★ | Disable reflection agent |
+
+```bash
+# Default stack
+bash scripts/download_models.sh
+
+# Smart stack (Mistral-7B, for AirLLM engine)
+bash scripts/download_models.sh --mistral
+```
+
 ---
 
 ## Memory Profile
@@ -111,21 +174,24 @@ Then open http://localhost:8080 in your browser.
 | Component             | Typical RAM  | Notes                                          |
 |-----------------------|-------------|------------------------------------------------|
 | Orchestrator + Engine | ~100 MB     | FastAPI + TF-IDF index (pure Python, ~1 MB)    |
-| LLM (Phi-3 Q4)        | ~2.2 GB     | Loaded on-demand, unloaded after use           |
+| Safety Engine         | ~1 MB       | Pure Python, no model                          |
+| Multi-Agent Dispatcher| ~5 MB       | Agent pool (models loaded on demand)           |
+| LLM (Phi-3 Q4, active)| ~2.2 GB     | Loaded on-demand, unloaded after use           |
 | Web Dashboard         | ~80 MB      | FastAPI + Jinja2                               |
 | Voice Service         | ~150 MB     | includes whisper.cpp model                     |
 | WhatsApp              | ~200 MB     | Playwright Chromium (headless)                 |
 | **Total**             | **~2.7 GB** | Well within 4 GB target                        |
 
-The `IntentEngine` and `PluginLoader` add **< 1 MB** to the orchestrator footprint.
-
 ---
 
-## New REST Endpoints
+## REST Endpoints
 
 | Method | Path               | Description                                     |
 |--------|--------------------|-------------------------------------------------|
-| POST   | `/chat`            | Send a query; response now includes `tool` and `confidence` |
+| POST   | `/chat`            | Query with safety checks + multi-agent routing  |
+| GET    | `/safety`          | Safety engine status and configuration          |
+| GET    | `/agents`          | Multi-agent dispatcher pool status              |
+| GET    | `/status`          | Extended status (LLM, safety, agents, tasks)    |
 | GET    | `/plugins`         | List all registered plugins with metadata       |
 | POST   | `/plugins/reload`  | Rescan `tools/` dirs, register new plugins      |
 | GET    | `/analytics`       | Usage statistics (tool counts, success rates)   |
