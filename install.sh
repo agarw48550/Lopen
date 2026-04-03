@@ -2,9 +2,11 @@
 # install.sh — One-command Lopen installer for macOS (Intel or Apple Silicon)
 #
 # Usage:
-#   bash install.sh             # full install with model download prompt
-#   bash install.sh --no-models # skip model downloads (install later)
-#   bash install.sh --debug     # verbose output
+#   bash install.sh                          # full install (interactive)
+#   bash install.sh --no-models              # skip model downloads
+#   bash install.sh --yes --no-models        # non-interactive quick install
+#   bash install.sh --yes --with-llama       # non-interactive + llama-cpp-python
+#   bash install.sh --debug                  # verbose output
 #
 # What this does:
 #   1. Checks OS, Python 3.9+, and system tools (NO Homebrew required)
@@ -39,19 +41,24 @@ info()  { echo -e "    ${DIM}ℹ${RESET}  $1"; }
 die()   { echo -e "\n${RED}ERROR: $1${RESET}\n"; exit 1; }
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-REPO_ROOT="$(dirname "$SCRIPT_DIR")"
+REPO_ROOT="$SCRIPT_DIR"
 
 # ---------------------------------------------------------------------------
 # Parse args
 # ---------------------------------------------------------------------------
 SKIP_MODELS=false
 DEBUG=false
+AUTO_YES=false
+INSTALL_LLAMA="ask" # ask | yes | no
 for arg in "$@"; do
     case "$arg" in
         --no-models) SKIP_MODELS=true ;;
         --debug)     DEBUG=true; set -x ;;
+        --yes|-y)    AUTO_YES=true ;;
+        --with-llama) INSTALL_LLAMA="yes" ;;
+        --without-llama) INSTALL_LLAMA="no" ;;
         --help|-h)
-            echo "Usage: bash install.sh [--no-models] [--debug]"
+            echo "Usage: bash install.sh [--no-models] [--yes|-y] [--with-llama|--without-llama] [--debug]"
             exit 0 ;;
     esac
 done
@@ -204,8 +211,21 @@ echo ""
 echo -e "  ${YELLOW}Optional:${RESET} Install llama-cpp-python for local LLM inference?"
 echo -e "  ${DIM}  This enables Qwen3.5-0.8B and other GGUF models to run locally.${RESET}"
 echo -e "  ${DIM}  Requires cmake (installed via pip if missing). Takes ~2-5 min.${RESET}"
-read -r -p "  Install llama-cpp-python? [y/N] " REPLY
-if [[ "${REPLY,,}" == "y" ]]; then
+if [[ "$INSTALL_LLAMA" == "ask" ]]; then
+    if [[ "$AUTO_YES" == "true" ]]; then
+        INSTALL_LLAMA="no"
+        info "--yes set: skipping llama-cpp-python by default (use --with-llama to enable)"
+    else
+        read -r -p "  Install llama-cpp-python? [y/N] " REPLY
+        if [[ "${REPLY,,}" == "y" ]]; then
+            INSTALL_LLAMA="yes"
+        else
+            INSTALL_LLAMA="no"
+        fi
+    fi
+fi
+
+if [[ "$INSTALL_LLAMA" == "yes" ]]; then
     echo -e "  Ensuring cmake is available (pip install cmake)..."
     pip install --quiet cmake || warn "cmake pip install failed — trying system cmake"
     echo -e "  Installing llama-cpp-python (CPU-only build)..."
@@ -252,7 +272,11 @@ else
     echo -e "  ${DIM}  • whisper-tiny ASR model       (~39 MB)  — speech recognition${RESET}"
     echo -e "  ${DIM}  • Piper TTS model (ryan-high)  (~65 MB)  — natural male voice${RESET}"
     echo ""
-    read -r -p "  Download models now? [Y/n] " REPLY
+    if [[ "$AUTO_YES" == "true" ]]; then
+        REPLY="y"
+    else
+        read -r -p "  Download models now? [Y/n] " REPLY
+    fi
     if [[ "${REPLY,,}" != "n" ]]; then
         bash scripts/download_models.sh \
             && ok "Models downloaded successfully" \
