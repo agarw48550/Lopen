@@ -3,128 +3,604 @@
 <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Lopen Dashboard</title>
+    <title>Lopen — Local AI Assistant</title>
     <style>
+        :root {
+            --bg: #0b0b11;
+            --bg2: #14141f;
+            --bg3: #1c1c2e;
+            --border: #2a2a3e;
+            --accent: #7b8cff;
+            --accent2: #60a5fa;
+            --green: #22c55e;
+            --yellow: #facc15;
+            --red: #f87171;
+            --text: #dde1f5;
+            --dim: #7a7a9a;
+            --radius: 12px;
+        }
         * { box-sizing: border-box; margin: 0; padding: 0; }
-        body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-               background: #0f0f14; color: #e0e0e0; min-height: 100vh; }
-        header { background: #1a1a2e; padding: 1rem 2rem;
-                 display: flex; align-items: center; gap: 1rem;
-                 border-bottom: 1px solid #2a2a3e; }
-        header h1 { font-size: 1.5rem; color: #7b8cff; }
-        header .badge { background: #22c55e; color: #000; font-size: 0.7rem;
-                        padding: 2px 8px; border-radius: 999px; font-weight: 700; }
-        main { display: grid; grid-template-columns: 1fr 1fr; gap: 1.5rem;
-               padding: 2rem; max-width: 1200px; margin: 0 auto; }
-        .card { background: #1a1a2e; border: 1px solid #2a2a3e; border-radius: 12px; padding: 1.5rem; }
-        .card h2 { font-size: 1rem; color: #7b8cff; margin-bottom: 1rem; text-transform: uppercase;
-                   letter-spacing: 0.05em; }
-        .chat-box { grid-column: 1 / -1; }
-        #chat-history { min-height: 200px; max-height: 300px; overflow-y: auto;
-                        background: #0f0f14; border-radius: 8px; padding: 1rem;
-                        margin-bottom: 1rem; font-size: 0.9rem; line-height: 1.6; }
-        .msg-user { color: #7b8cff; margin-bottom: 0.5rem; }
-        .msg-assistant { color: #e0e0e0; margin-bottom: 0.8rem; }
-        .input-row { display: flex; gap: 0.5rem; }
-        #chat-input { flex: 1; background: #0f0f14; border: 1px solid #2a2a3e;
-                      color: #e0e0e0; border-radius: 8px; padding: 0.6rem 1rem; font-size: 0.95rem; }
-        button { background: #7b8cff; color: #000; border: none; border-radius: 8px;
-                 padding: 0.6rem 1.2rem; cursor: pointer; font-weight: 600; font-size: 0.9rem; }
-        button:hover { background: #9aa8ff; }
-        .task-list { list-style: none; }
-        .task-item { background: #0f0f14; border-radius: 6px; padding: 0.5rem 0.8rem;
-                     margin-bottom: 0.5rem; font-size: 0.85rem; display: flex; gap: 0.5rem; align-items: center; }
-        .status-pending { color: #facc15; }
-        .status-running { color: #60a5fa; }
-        .status-done { color: #22c55e; }
-        .status-failed { color: #f87171; }
-        .turn-list { list-style: none; max-height: 200px; overflow-y: auto; }
-        .turn-item { font-size: 0.85rem; padding: 0.3rem 0; border-bottom: 1px solid #1e1e30; }
-        .turn-item .role { color: #7b8cff; font-weight: 600; margin-right: 0.4rem; }
-        .empty { color: #555; font-style: italic; font-size: 0.85rem; }
+        html, body { height: 100%; }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+            background: var(--bg);
+            color: var(--text);
+            display: flex;
+            flex-direction: column;
+            min-height: 100vh;
+        }
+
+        /* ── Header ── */
+        header {
+            background: var(--bg3);
+            padding: 0.75rem 1.5rem;
+            display: flex;
+            align-items: center;
+            gap: 1rem;
+            border-bottom: 1px solid var(--border);
+            position: sticky;
+            top: 0;
+            z-index: 10;
+        }
+        .logo { font-size: 1.4rem; font-weight: 700; color: var(--accent); letter-spacing: -0.5px; }
+        .logo span { color: var(--text); font-weight: 300; }
+        .status-dot {
+            width: 8px; height: 8px; border-radius: 50%;
+            background: var(--green);
+            box-shadow: 0 0 8px var(--green);
+            animation: pulse 2s infinite;
+        }
+        .status-dot.offline { background: var(--red); box-shadow: 0 0 8px var(--red); animation: none; }
+        @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.4} }
+        .badge {
+            background: var(--green); color: #000;
+            font-size: 0.65rem; padding: 2px 8px;
+            border-radius: 999px; font-weight: 700;
+            letter-spacing: 0.05em;
+        }
+        .badge.offline { background: var(--red); }
+        .header-right { margin-left: auto; display: flex; align-items: center; gap: 1rem; }
+        .header-stat { font-size: 0.8rem; color: var(--dim); }
+        .header-stat strong { color: var(--text); }
+        #uptime-display { font-size: 0.8rem; color: var(--dim); }
+
+        /* ── Layout ── */
+        main {
+            flex: 1;
+            display: grid;
+            grid-template-columns: 1fr 320px;
+            grid-template-rows: 1fr auto;
+            gap: 1rem;
+            padding: 1rem 1.5rem;
+            max-width: 1400px;
+            margin: 0 auto;
+            width: 100%;
+        }
+        @media (max-width: 900px) {
+            main { grid-template-columns: 1fr; }
+            .sidebar { display: none; }
+        }
+
+        /* ── Cards ── */
+        .card {
+            background: var(--bg2);
+            border: 1px solid var(--border);
+            border-radius: var(--radius);
+            padding: 1.25rem;
+            overflow: hidden;
+        }
+        .card-title {
+            font-size: 0.72rem;
+            font-weight: 700;
+            color: var(--accent);
+            text-transform: uppercase;
+            letter-spacing: 0.1em;
+            margin-bottom: 0.9rem;
+        }
+
+        /* ── Chat panel ── */
+        .chat-panel {
+            grid-row: 1 / 3;
+            display: flex;
+            flex-direction: column;
+        }
+        #chat-history {
+            flex: 1;
+            overflow-y: auto;
+            padding: 0.5rem 0;
+            min-height: 0;
+            max-height: calc(100vh - 240px);
+        }
+        .msg { margin-bottom: 1rem; display: flex; flex-direction: column; }
+        .msg-header {
+            font-size: 0.72rem;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            margin-bottom: 0.2rem;
+        }
+        .msg.user .msg-header { color: var(--accent); }
+        .msg.assistant .msg-header { color: var(--green); }
+        .msg-body {
+            background: var(--bg3);
+            border-radius: 8px;
+            padding: 0.6rem 0.9rem;
+            font-size: 0.9rem;
+            line-height: 1.6;
+            white-space: pre-wrap;
+            word-break: break-word;
+        }
+        .msg.user .msg-body { border-left: 3px solid var(--accent); }
+        .msg.assistant .msg-body { border-left: 3px solid var(--green); }
+        .msg-meta { font-size: 0.7rem; color: var(--dim); margin-top: 0.2rem; }
+
+        /* Typing indicator */
+        .typing-indicator { display: flex; gap: 4px; align-items: center; padding: 0.4rem 0; }
+        .typing-dot {
+            width: 6px; height: 6px; background: var(--accent);
+            border-radius: 50%; animation: blink 1.2s infinite;
+        }
+        .typing-dot:nth-child(2) { animation-delay: 0.2s; }
+        .typing-dot:nth-child(3) { animation-delay: 0.4s; }
+        @keyframes blink { 0%,80%,100%{opacity:0.2} 40%{opacity:1} }
+
+        /* Input row */
+        .input-area { margin-top: 0.9rem; }
+        .input-row { display: flex; gap: 0.5rem; align-items: flex-end; }
+        #chat-input {
+            flex: 1;
+            background: var(--bg3);
+            border: 1px solid var(--border);
+            color: var(--text);
+            border-radius: 8px;
+            padding: 0.65rem 1rem;
+            font-size: 0.95rem;
+            font-family: inherit;
+            resize: none;
+            min-height: 42px;
+            max-height: 120px;
+            line-height: 1.4;
+            transition: border-color 0.15s;
+        }
+        #chat-input:focus { outline: none; border-color: var(--accent); }
+        .send-btn {
+            background: var(--accent);
+            color: #000;
+            border: none;
+            border-radius: 8px;
+            padding: 0.65rem 1.2rem;
+            cursor: pointer;
+            font-weight: 700;
+            font-size: 0.9rem;
+            transition: background 0.15s, transform 0.1s;
+            white-space: nowrap;
+        }
+        .send-btn:hover { background: #9aa8ff; }
+        .send-btn:active { transform: scale(0.97); }
+        .send-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+        .input-hint { font-size: 0.7rem; color: var(--dim); margin-top: 0.3rem; }
+
+        /* ── Sidebar ── */
+        .sidebar { display: flex; flex-direction: column; gap: 1rem; }
+
+        /* Status card */
+        .stat-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 0.6rem; }
+        .stat-item {
+            background: var(--bg3);
+            border-radius: 8px;
+            padding: 0.7rem;
+            display: flex;
+            flex-direction: column;
+            gap: 0.2rem;
+        }
+        .stat-label { font-size: 0.65rem; color: var(--dim); text-transform: uppercase; letter-spacing: 0.07em; }
+        .stat-value { font-size: 1.1rem; font-weight: 700; color: var(--text); }
+        .stat-value.green { color: var(--green); }
+        .stat-value.yellow { color: var(--yellow); }
+        .stat-value.red { color: var(--red); }
+
+        /* RAM bar */
+        .ram-bar { height: 4px; background: var(--bg); border-radius: 2px; overflow: hidden; margin-top: 4px; }
+        .ram-fill { height: 100%; background: var(--green); transition: width 0.5s, background 0.5s; border-radius: 2px; }
+
+        /* Plugin list */
+        .plugin-list { list-style: none; max-height: 160px; overflow-y: auto; }
+        .plugin-item {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            padding: 0.3rem 0;
+            font-size: 0.8rem;
+            border-bottom: 1px solid var(--border);
+        }
+        .plugin-item:last-child { border-bottom: none; }
+        .plugin-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--green); flex-shrink: 0; }
+
+        /* Memory list */
+        .memory-list { list-style: none; max-height: 180px; overflow-y: auto; }
+        .memory-item { padding: 0.3rem 0; font-size: 0.78rem; border-bottom: 1px solid var(--border); }
+        .memory-item:last-child { border-bottom: none; }
+        .memory-role { font-weight: 700; margin-right: 0.4rem; }
+        .memory-role.user { color: var(--accent); }
+        .memory-role.assistant { color: var(--green); }
+        .memory-text { color: var(--dim); }
+
+        .empty-state { color: var(--dim); font-size: 0.82rem; font-style: italic; }
+
+        /* ── Toast notifications ── */
+        #toast {
+            position: fixed;
+            bottom: 1.5rem;
+            right: 1.5rem;
+            background: var(--bg3);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            padding: 0.6rem 1rem;
+            font-size: 0.82rem;
+            color: var(--text);
+            opacity: 0;
+            transition: opacity 0.3s;
+            z-index: 100;
+            pointer-events: none;
+        }
+        #toast.show { opacity: 1; }
+
+        /* Scrollbar styling */
+        ::-webkit-scrollbar { width: 4px; }
+        ::-webkit-scrollbar-track { background: transparent; }
+        ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
     </style>
 </head>
 <body>
     <header>
-        <h1>🤖 Lopen</h1>
-        <span class="badge">ONLINE</span>
+        <div class="logo">Lopen<span> / dashboard</span></div>
+        <div id="conn-dot" class="status-dot offline" title="Connecting…"></div>
+        <span id="conn-badge" class="badge offline">OFFLINE</span>
+        <div class="header-right">
+            <div id="uptime-display" class="header-stat">Uptime: <strong id="uptime-val">—</strong></div>
+            <div class="header-stat">Session: <strong id="session-id">—</strong></div>
+        </div>
     </header>
 
     <main>
-        <!-- Chat -->
-        <div class="card chat-box">
-            <h2>💬 Chat</h2>
+        <!-- Chat Panel -->
+        <div class="card chat-panel">
+            <div class="card-title">💬 Chat with Lopen</div>
             <div id="chat-history">
-                <div class="msg-assistant">Hello! I'm Lopen. How can I help you today?</div>
+                <div class="msg assistant">
+                    <div class="msg-header">Lopen</div>
+                    <div class="msg-body">Hello! I'm Lopen, your local-first autonomous assistant.
+I'm running entirely on your Mac — no cloud, no subscriptions, just smart local AI.
+
+Type anything to get started, or try: <em>"help me with my homework"</em>, <em>"write a Python script"</em>, or <em>"research quantum computing"</em>.</div>
+                    <div class="msg-meta">Ready · Local · Private</div>
+                </div>
             </div>
-            <div class="input-row">
-                <input id="chat-input" type="text" placeholder="Ask Lopen anything…" autocomplete="off" />
-                <button onclick="sendChat()">Send</button>
+            <div class="input-area">
+                <div class="input-row">
+                    <textarea id="chat-input" rows="1" placeholder="Ask Lopen anything… (Enter to send, Shift+Enter for new line)"></textarea>
+                    <button class="send-btn" id="send-btn" onclick="sendChat()">Send ↵</button>
+                </div>
+                <div class="input-hint">Shift+Enter for new line · Your data never leaves this machine</div>
             </div>
         </div>
 
-        <!-- Tasks -->
-        <div class="card">
-            <h2>📋 Recent Tasks</h2>
-            <ul class="task-list" id="task-list">
-                {% for task in tasks %}
-                <li class="task-item">
-                    <span class="status-{{ task.status }}">{{ task.status.upper() }}</span>
-                    <span>{{ task.intent }}</span>
-                    <span style="color:#888; font-size:0.8rem">{{ task.payload }}</span>
-                </li>
-                {% else %}
-                <li class="empty">No tasks yet.</li>
-                {% endfor %}
-            </ul>
-        </div>
+        <!-- Sidebar -->
+        <div class="sidebar">
+            <!-- System Status -->
+            <div class="card">
+                <div class="card-title">⚡ System Status</div>
+                <div class="stat-grid" id="stat-grid">
+                    <div class="stat-item">
+                        <div class="stat-label">Orchestrator</div>
+                        <div class="stat-value" id="stat-orch">—</div>
+                    </div>
+                    <div class="stat-item">
+                        <div class="stat-label">LLM Mode</div>
+                        <div class="stat-value" id="stat-llm" style="font-size:0.85rem">—</div>
+                    </div>
+                    <div class="stat-item">
+                        <div class="stat-label">Tools</div>
+                        <div class="stat-value" id="stat-tools">—</div>
+                    </div>
+                    <div class="stat-item">
+                        <div class="stat-label">Memory</div>
+                        <div class="stat-value" id="stat-mem">—</div>
+                    </div>
+                </div>
+                <div style="margin-top:0.8rem">
+                    <div style="font-size:0.7rem;color:var(--dim);margin-bottom:4px">RAM USAGE</div>
+                    <div class="ram-bar"><div class="ram-fill" id="ram-fill" style="width:0%"></div></div>
+                    <div style="font-size:0.7rem;color:var(--dim);margin-top:2px" id="ram-label">—</div>
+                </div>
+            </div>
 
-        <!-- Memory -->
-        <div class="card">
-            <h2>🧠 Conversation Memory</h2>
-            <ul class="turn-list" id="memory-list">
-                {% for turn in memory_turns %}
-                <li class="turn-item">
-                    <span class="role">{{ turn.role }}</span>{{ turn.content }}
-                </li>
-                {% else %}
-                <li class="empty">No memory recorded yet.</li>
-                {% endfor %}
-            </ul>
+            <!-- Plugins -->
+            <div class="card">
+                <div class="card-title" style="display:flex;justify-content:space-between;align-items:center">
+                    🔌 Plugins
+                    <button onclick="reloadPlugins()" style="background:none;border:1px solid var(--border);color:var(--dim);padding:2px 8px;border-radius:4px;font-size:0.7rem;cursor:pointer">Reload</button>
+                </div>
+                <ul class="plugin-list" id="plugin-list">
+                    <li class="empty-state">Loading…</li>
+                </ul>
+            </div>
+
+            <!-- Memory -->
+            <div class="card">
+                <div class="card-title" style="display:flex;justify-content:space-between;align-items:center">
+                    🧠 Memory
+                    <button onclick="clearMemory()" style="background:none;border:1px solid var(--border);color:var(--dim);padding:2px 8px;border-radius:4px;font-size:0.7rem;cursor:pointer">Clear</button>
+                </div>
+                <ul class="memory-list" id="memory-list">
+                    <li class="empty-state">No turns yet.</li>
+                </ul>
+            </div>
         </div>
     </main>
 
+    <div id="toast"></div>
+
     <script>
-        const chatHistory = document.getElementById('chat-history');
-        const chatInput = document.getElementById('chat-input');
+    /* ── Config ── */
+    const API = 'http://localhost:8000';
+    const SESSION_ID = 'web-' + Date.now().toString(36);
+    let isOnline = false;
+    let uptimeSeconds = 0;
 
-        function appendMsg(role, text) {
-            const div = document.createElement('div');
-            div.className = role === 'user' ? 'msg-user' : 'msg-assistant';
-            div.textContent = (role === 'user' ? 'You: ' : 'Lopen: ') + text;
-            chatHistory.appendChild(div);
-            chatHistory.scrollTop = chatHistory.scrollHeight;
-        }
+    document.getElementById('session-id').textContent = SESSION_ID;
 
-        async function sendChat() {
-            const query = chatInput.value.trim();
-            if (!query) return;
-            chatInput.value = '';
-            appendMsg('user', query);
-            try {
-                const res = await fetch('/chat', {
-                    method: 'POST',
-                    headers: {'Content-Type': 'application/json'},
-                    body: JSON.stringify({query})
-                });
-                const data = await res.json();
-                appendMsg('assistant', data.response || '(empty response)');
-            } catch (e) {
-                appendMsg('assistant', 'Error: ' + e.message);
+    /* ── Toast ── */
+    function toast(msg, duration = 2500) {
+        const t = document.getElementById('toast');
+        t.textContent = msg;
+        t.classList.add('show');
+        setTimeout(() => t.classList.remove('show'), duration);
+    }
+
+    /* ── Format helpers ── */
+    function formatUptime(s) {
+        if (!s) return '0s';
+        const h = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60), sec = Math.floor(s % 60);
+        if (h > 0) return `${h}h ${m}m`;
+        if (m > 0) return `${m}m ${sec}s`;
+        return `${sec}s`;
+    }
+
+    /* ── Connection management ── */
+    async function checkConnection() {
+        try {
+            const r = await fetch(`${API}/health`, {signal: AbortSignal.timeout(3000)});
+            const data = await r.json();
+            if (!isOnline) {
+                setOnline(true);
+                toast('✓ Connected to Lopen orchestrator');
+            }
+            uptimeSeconds = data.uptime_seconds || 0;
+            document.getElementById('uptime-val').textContent = formatUptime(uptimeSeconds);
+        } catch {
+            if (isOnline) {
+                setOnline(false);
+                toast('⚠ Lost connection to orchestrator');
             }
         }
+    }
 
-        chatInput.addEventListener('keydown', e => { if (e.key === 'Enter') sendChat(); });
+    function setOnline(online) {
+        isOnline = online;
+        const dot = document.getElementById('conn-dot');
+        const badge = document.getElementById('conn-badge');
+        if (online) {
+            dot.classList.remove('offline');
+            badge.classList.remove('offline');
+            badge.textContent = 'ONLINE';
+        } else {
+            dot.classList.add('offline');
+            badge.classList.add('offline');
+            badge.textContent = 'OFFLINE';
+            document.getElementById('stat-orch').textContent = 'Offline';
+            document.getElementById('stat-orch').className = 'stat-value red';
+        }
+    }
+
+    /* ── Status polling ── */
+    async function refreshStatus() {
+        if (!isOnline) return;
+        try {
+            const r = await fetch(`${API}/status`, {signal: AbortSignal.timeout(4000)});
+            const d = await r.json();
+
+            // Orch status
+            const orchEl = document.getElementById('stat-orch');
+            orchEl.textContent = (d.status || '?').toUpperCase();
+            orchEl.className = 'stat-value ' + (d.status === 'running' ? 'green' : 'yellow');
+
+            // LLM
+            document.getElementById('stat-llm').textContent = d.llm_mode || '?';
+
+            // Tools
+            document.getElementById('stat-tools').textContent = d.tools_registered ?? '?';
+
+            // Memory turns
+            document.getElementById('stat-mem').textContent = (d.memory_turns ?? '?') + ' turns';
+
+            // RAM (from navigator.deviceMemory heuristic if psutil unavailable)
+            try {
+                const hr = await fetch(`${API}/health`);
+                const hd = await hr.json();
+                // We don't have RAM from the API yet; use a placeholder
+                const ramPct = 0;
+                document.getElementById('ram-fill').style.width = ramPct + '%';
+                document.getElementById('ram-label').textContent = 'Data from orchestrator';
+            } catch {}
+        } catch {}
+    }
+
+    /* ── Plugins ── */
+    async function loadPlugins() {
+        if (!isOnline) return;
+        try {
+            const r = await fetch(`${API}/plugins`);
+            const d = await r.json();
+            const list = document.getElementById('plugin-list');
+            list.innerHTML = '';
+            (d.plugins || []).forEach(p => {
+                const name = typeof p === 'string' ? p : p.name;
+                const tags = typeof p === 'object' ? (p.tags || []).join(', ') : '';
+                const li = document.createElement('li');
+                li.className = 'plugin-item';
+                li.innerHTML = `<span class="plugin-dot"></span><span>${name}</span>${tags ? '<span style="color:var(--dim);font-size:0.7rem;margin-left:auto">' + tags + '</span>' : ''}`;
+                list.appendChild(li);
+            });
+            if (!d.plugins || d.plugins.length === 0) {
+                list.innerHTML = '<li class="empty-state">No plugins loaded.</li>';
+            }
+        } catch {}
+    }
+
+    async function reloadPlugins() {
+        if (!isOnline) { toast('Orchestrator offline'); return; }
+        try {
+            const r = await fetch(`${API}/plugins/reload`, {method: 'POST'});
+            const d = await r.json();
+            toast('Plugins reloaded: ' + (d.count || 0) + ' registered');
+            await loadPlugins();
+        } catch (e) { toast('Reload failed: ' + e.message); }
+    }
+
+    /* ── Memory ── */
+    async function loadMemory() {
+        if (!isOnline) return;
+        try {
+            const r = await fetch(`${API}/memory`);
+            const d = await r.json();
+            renderMemoryList(d.turns || []);
+        } catch {}
+    }
+
+    function renderMemoryList(turns) {
+        const list = document.getElementById('memory-list');
+        list.innerHTML = '';
+        if (!turns.length) {
+            list.innerHTML = '<li class="empty-state">No conversation recorded yet.</li>';
+            return;
+        }
+        turns.slice(-10).forEach(t => {
+            const li = document.createElement('li');
+            li.className = 'memory-item';
+            li.innerHTML = `<span class="memory-role ${t.role}">${t.role}</span><span class="memory-text">${escHtml(t.content.substring(0, 80))}${t.content.length > 80 ? '…' : ''}</span>`;
+            list.appendChild(li);
+        });
+        list.scrollTop = list.scrollHeight;
+    }
+
+    async function clearMemory() {
+        if (!isOnline) { toast('Orchestrator offline'); return; }
+        try {
+            await fetch(`${API}/memory`, {method: 'DELETE'});
+            document.getElementById('memory-list').innerHTML = '<li class="empty-state">Memory cleared.</li>';
+            toast('Conversation memory cleared');
+        } catch (e) { toast('Failed: ' + e.message); }
+    }
+
+    /* ── Chat ── */
+    const chatHistory = document.getElementById('chat-history');
+    const chatInput = document.getElementById('chat-input');
+    const sendBtn = document.getElementById('send-btn');
+
+    function escHtml(s) {
+        return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+    }
+
+    function appendMsg(role, text, meta) {
+        const el = document.createElement('div');
+        el.className = 'msg ' + role;
+        const now = new Date().toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'});
+        el.innerHTML = `
+            <div class="msg-header">${role === 'user' ? 'You' : 'Lopen'}</div>
+            <div class="msg-body">${escHtml(text)}</div>
+            <div class="msg-meta">${now}${meta ? ' · ' + escHtml(meta) : ''}</div>
+        `;
+        chatHistory.appendChild(el);
+        chatHistory.scrollTop = chatHistory.scrollHeight;
+        return el;
+    }
+
+    function showTyping() {
+        const el = document.createElement('div');
+        el.id = 'typing';
+        el.className = 'msg assistant';
+        el.innerHTML = `<div class="msg-header">Lopen</div><div class="msg-body"><div class="typing-indicator"><div class="typing-dot"></div><div class="typing-dot"></div><div class="typing-dot"></div></div></div>`;
+        chatHistory.appendChild(el);
+        chatHistory.scrollTop = chatHistory.scrollHeight;
+    }
+
+    function hideTyping() {
+        const t = document.getElementById('typing');
+        if (t) t.remove();
+    }
+
+    async function sendChat() {
+        const query = chatInput.value.trim();
+        if (!query) return;
+        if (!isOnline) { toast('⚠ Orchestrator offline — start with: bash scripts/start.sh'); return; }
+
+        chatInput.value = '';
+        chatInput.style.height = 'auto';
+        sendBtn.disabled = true;
+
+        appendMsg('user', query, '');
+        showTyping();
+
+        const t0 = Date.now();
+        try {
+            const r = await fetch(`${API}/chat`, {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({message: query, session_id: SESSION_ID})
+            });
+            const d = await r.json();
+            hideTyping();
+            const elapsed = ((Date.now() - t0) / 1000).toFixed(1);
+            const meta = [
+                d.tool_used ? 'tool: ' + d.tool_used : '',
+                d.confidence ? 'conf: ' + d.confidence : '',
+                elapsed + 's'
+            ].filter(Boolean).join(' · ');
+            appendMsg('assistant', d.response || '(empty)', meta);
+            // Refresh memory after chat
+            await loadMemory();
+        } catch (e) {
+            hideTyping();
+            appendMsg('assistant', '⚠ Error: ' + e.message + '\n\nIs the orchestrator running? Start with:\n  bash scripts/start.sh', '');
+        } finally {
+            sendBtn.disabled = false;
+            chatInput.focus();
+        }
+    }
+
+    /* Input auto-resize + Enter handling */
+    chatInput.addEventListener('input', () => {
+        chatInput.style.height = 'auto';
+        chatInput.style.height = Math.min(chatInput.scrollHeight, 120) + 'px';
+    });
+    chatInput.addEventListener('keydown', e => {
+        if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendChat(); }
+    });
+
+    /* ── Polling ── */
+    async function pollAll() {
+        await checkConnection();
+        await refreshStatus();
+        await loadPlugins();
+        await loadMemory();
+    }
+
+    pollAll();
+    setInterval(checkConnection, 10000);
+    setInterval(refreshStatus, 15000);
+    setInterval(loadMemory, 30000);
     </script>
 </body>
 </html>
+

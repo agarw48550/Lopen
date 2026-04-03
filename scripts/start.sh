@@ -1,5 +1,9 @@
 #!/usr/bin/env bash
 # start.sh — Start all Lopen services
+#
+# Usage:
+#   bash scripts/start.sh          # normal start
+#   bash scripts/start.sh --debug  # start with verbose debug logging
 
 set -euo pipefail
 
@@ -17,12 +21,19 @@ fi
 
 cd "$REPO_ROOT"
 
+# Pass through any flags (e.g. --debug)
+FLAGS="$@"
+
 echo "==> Starting Lopen services..."
 
-bash "$SCRIPT_DIR/start_orchestrator.sh"
+bash "$SCRIPT_DIR/start_orchestrator.sh" $FLAGS
 bash "$SCRIPT_DIR/start_dashboard.sh"
 
 echo "==> All services started."
 echo "    Orchestrator: http://localhost:8000/health"
 echo "    Dashboard:    http://localhost:8080/"
 echo "    Logs:         $LOG_DIR/"
+echo ""
+echo "    Interactive CLI:  python cli.py"
+echo "    Status:           bash scripts/status.sh"
+echo "    Diagnostics:      bash scripts/diagnose.sh"

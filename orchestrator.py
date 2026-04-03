@@ -74,6 +74,7 @@ def _configure_logging(log_dir: str = "logs", level: str = "INFO") -> None:
 
 _state: dict[str, Any] = {}
 _scheduler = None  # APScheduler instance
+_start_time: float = 0.0
 
 logger = logging.getLogger("lopen.orchestrator")
 
@@ -90,9 +91,16 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
 
 
 def _startup() -> None:
+    global _start_time
+    _start_time = time.time()
+
     settings = _load_yaml("config/settings.yaml")
     lopen_cfg = settings.get("lopen", {})
     log_level = os.environ.get("LOPEN_LOG_LEVEL", lopen_cfg.get("log_level", "INFO"))
+    # Debug mode: LOPEN_DEBUG=1 (or "true"/"yes") overrides to DEBUG level
+    _debug_env = os.environ.get("LOPEN_DEBUG", "").strip().lower()
+    if _debug_env in ("1", "true", "yes"):
+        log_level = "DEBUG"
     log_dir = lopen_cfg.get("log_dir", "logs")
     _configure_logging(log_dir=log_dir, level=log_level)
 
@@ -413,8 +421,13 @@ router = APIRouter()
 
 
 @router.get("/health", tags=["Health"])
-async def health_check() -> dict[str, str]:
-    return {"status": "healthy", "service": "orchestrator"}
+async def health_check() -> dict[str, Any]:
+    uptime = time.time() - _start_time if _start_time else 0.0
+    return {
+        "status": "healthy",
+        "service": "orchestrator",
+        "uptime_seconds": round(uptime, 1),
+    }
 
 
 @router.get("/status", tags=["Status"])
@@ -449,7 +462,8 @@ async def status() -> dict[str, Any]:
 @router.post("/chat", tags=["Chat"])
 async def chat(request: "Request") -> dict[str, Any]:
     body = await request.json() if hasattr(request, "json") else {}
-    query: str = body.get("query", "").strip()
+    # Accept both 'query' and 'message' field names (CLI sends 'message')
+    query: str = (body.get("query") or body.get("message") or "").strip()
     if not query:
         return {"response": "Please provide a query."}
 
@@ -577,6 +591,7 @@ async def chat(request: "Request") -> dict[str, Any]:
     result: dict[str, Any] = {
         "response": response_str,
         "tool": selected_tool_name,
+        "tool_used": selected_tool_name,
         "confidence": round(confidence, 3),
     }
     if agents_used:
@@ -704,6 +719,28 @@ async def post_feedback(request: "Request") -> dict[str, str]:
         analytics.log_feedback(tool_name, query, was_helpful)
 
     return {"status": "recorded"}
+
+
+@router.get("/memory", tags=["Memory"])
+async def get_memory() -> dict[str, Any]:
+    """Return current conversation history (turns)."""
+    memory = _state.get("memory")
+    if not memory:
+        return {"turns": [], "turn_count": 0}
+    turns = [
+        {"role": t.role, "content": t.content}
+        for t in memory.get_recent(n=50)
+    ]
+    return {"turns": turns, "turn_count": len(turns)}
+
+
+@router.delete("/memory", tags=["Memory"])
+async def clear_memory() -> dict[str, str]:
+    """Clear the conversation history."""
+    memory = _state.get("memory")
+    if memory and hasattr(memory, "clear"):
+        memory.clear()
+    return {"status": "cleared"}
 
 
 @router.get("/safety", tags=["Safety"])
