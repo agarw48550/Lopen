@@ -14,7 +14,7 @@
 #   4. Installs all Python requirements (pip only — no Homebrew)
 #   5. Copies .env.example → .env (if not exists)
 #   6. Creates required directories (logs/, models/, .pids/)
-#   7. Optionally downloads AI models (Qwen2.5-0.5B + whisper-tiny + Piper TTS)
+#   7. Optionally downloads AI models (Qwen3.5-0.8B + whisper-tiny + Piper TTS)
 #   8. Runs self-diagnostics to verify the installation
 #   9. Prints a quickstart guide
 #
@@ -202,7 +202,7 @@ ok "Core requirements installed"
 # Optional: llama-cpp-python (recommended for local LLM)
 echo ""
 echo -e "  ${YELLOW}Optional:${RESET} Install llama-cpp-python for local LLM inference?"
-echo -e "  ${DIM}  This enables Qwen2.5-0.5B and other GGUF models to run locally.${RESET}"
+echo -e "  ${DIM}  This enables Qwen3.5-0.8B and other GGUF models to run locally.${RESET}"
 echo -e "  ${DIM}  Requires cmake (installed via pip if missing). Takes ~2-5 min.${RESET}"
 read -r -p "  Install llama-cpp-python? [y/N] " REPLY
 if [[ "${REPLY,,}" == "y" ]]; then
@@ -248,7 +248,7 @@ if [[ "$SKIP_MODELS" == "true" ]]; then
 else
     step "Downloading AI models"
     echo -e "  ${DIM}This will download:${RESET}"
-    echo -e "  ${DIM}  • Qwen2.5-0.5B-Instruct Q4_K_M (~360 MB) — ultra-fast primary LLM${RESET}"
+    echo -e "  ${DIM}  • Qwen3.5-0.8B-Instruct Q4_K_M (~0.55 GB) — ultra-fast primary LLM${RESET}"
     echo -e "  ${DIM}  • whisper-tiny ASR model       (~39 MB)  — speech recognition${RESET}"
     echo -e "  ${DIM}  • Piper TTS model (ryan-high)  (~65 MB)  — natural male voice${RESET}"
     echo ""

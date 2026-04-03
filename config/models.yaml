@@ -6,65 +6,65 @@
 # fetch only what is needed.
 #
 # Memory budget (default stack, 4 GB hard limit):
-#   - Qwen2.5-0.5B-Instruct Q4_K_M (active):  ~360 MB
+#   - Qwen3.5-0.8B-Instruct Q4_K_M (active):  ~0.55 GB
 #   - Whisper-tiny ASR (when active):            ~80 MB
 #   - Piper TTS (when active):                   ~70 MB
 #   - Python / FastAPI overhead:                ~350 MB
-#   - Total:                                    ~860 MB  ✓  (3.1 GB headroom)
+#   - Total:                                    ~1.05 GB  ✓  (2.9 GB headroom)
 #
 # Speed benchmark (2017 Intel MacBook Pro, Core i5):
-#   - Qwen2.5-0.5B Q4_K_M: ~8–12 tok/s → first response < 1s ✓
-#   - Qwen2.5-1.5B Q4_K_M: ~3–5 tok/s  → first response ~2s ✓
+#   - Qwen3.5-0.8B Q4_K_M: ~8–12 tok/s → first response < 1s ✓
+#   - Qwen3.5-1.5B Q4_K_M: ~3–5 tok/s  → first response ~2s ✓
 #   - Phi-3-mini Q4_K_M:   ~2–4 tok/s  → first response ~3s
 #
-# Why Qwen2.5-0.5B-Instruct over Phi-3-mini (previous default):
-#   • 6× smaller file (360 MB vs 2.2 GB) → much faster cold start
+# Why Qwen3.5-0.8B-Instruct over Phi-3-mini (previous default):
+#   • 4× smaller file (550 MB vs 2.2 GB) → much faster cold start
 #   • 3× higher token/s throughput → first response reliably <1s
 #   • Instruction-tuned quality matches Phi-3-mini on short tasks
 #   • Leaves 3+ GB free for multi-agent, voice pipeline, and browser tools
 #   • Source: HuggingFace Qwen team GGUF; up-to-date April 2026
 #
-# For a higher-quality model (Qwen2.5-1.5B):
-#   - Change `llm.active` to "qwen25-1.5b-q4" (see below)
+# For a higher-quality model (Qwen3.5-1.5B):
+#   - Change `llm.active` to "qwen35-1.5b-q4" (see below)
 #   - ~1.0 GB, still comfortably within 4 GB budget
 #
-# For maximum quality / smartest responses (Qwen2.5-3B or Phi-3-mini):
+# For maximum quality / smartest responses (Qwen3.5-3B or Phi-3-mini):
 #   - Change `llm.active` to "phi3-mini-q4" (see below)
 #   - Use with AirLLM engine (engine: airllm in config/settings.yaml)
 ##############################################################################
 
 models:
   # -------------------------------------------------------------------------
-  # Main LLM — default: Qwen2.5-0.5B-Instruct Q4_K_M (ultra-fast, tiny RAM)
+  # Main LLM — default: Qwen3.5-0.8B-Instruct Q4_K_M (ultra-fast, tiny RAM)
   # -------------------------------------------------------------------------
   llm:
-    active: "qwen25-0.5b-q4"   # change to "qwen25-1.5b-q4" for better quality
+    active: "qwen35-0.8b-q4"   # change to "qwen35-1.5b-q4" for better quality
 
-    # PRIMARY (default): Qwen2.5-0.5B-Instruct Q4_K_M
-    #   0.5B parameters, 32K context, instruction-tuned
-    #   RAM: ~360 MB  Speed: 8–12 tok/s on Intel Mac  → <1s first token
-    #   Source: https://huggingface.co/Qwen/Qwen2.5-0.5B-Instruct-GGUF
-    qwen25-0.5b-q4:
-      name: "Qwen2.5-0.5B-Instruct-Q4_K_M"
-      filename: "qwen2.5-0.5b-instruct-q4_k_m.gguf"
-      url: "https://huggingface.co/Qwen/Qwen2.5-0.5B-Instruct-GGUF/resolve/main/qwen2.5-0.5b-instruct-q4_k_m.gguf"
-      size_gb: 0.36
+    # PRIMARY (default): Qwen3.5-0.8B-Instruct Q4_K_M
+    #   0.8B parameters, 32K context, instruction-tuned
+    #   RAM: ~0.55 GB  Speed: 8–12 tok/s on Intel Mac  → <1s first token
+    #   Source: https://huggingface.co/Qwen/Qwen3.5-0.8B-Instruct-GGUF
+    qwen35-0.8b-q4:
+      name: "Qwen3.5-0.8B-Instruct-Q4_K_M"
+      filename: "qwen3.5-0.8b-instruct-q4_k_m.gguf"
+      url: "https://huggingface.co/Qwen/Qwen3.5-0.8B-Instruct-GGUF/resolve/main/qwen3.5-0.8b-instruct-q4_k_m.gguf"
+      size_gb: 0.55
       context_window: 4096
       local_path: "models/llm/"
       quantization: "Q4_K_M"
-      params_b: 0.5
+      params_b: 0.8
       chat_format: "chatml"
       stop_tokens: ["<|im_end|>", "<|endoftext|>"]
-      notes: "Default. Ultra-fast (<1s response on Intel Mac). 360 MB. Best for multi-agent use."
+      notes: "Default. Ultra-fast (<1s response on Intel Mac). 550 MB. Best for multi-agent use."
 
-    # QUALITY UPGRADE: Qwen2.5-1.5B-Instruct Q4_K_M
+    # QUALITY UPGRADE: Qwen3.5-1.5B-Instruct Q4_K_M
     #   1.5B parameters, noticeably smarter, still well within 4 GB budget
     #   RAM: ~1.0 GB  Speed: 3–5 tok/s → ~2s first response
-    #   Source: https://huggingface.co/Qwen/Qwen2.5-1.5B-Instruct-GGUF
-    qwen25-1.5b-q4:
-      name: "Qwen2.5-1.5B-Instruct-Q4_K_M"
-      filename: "qwen2.5-1.5b-instruct-q4_k_m.gguf"
-      url: "https://huggingface.co/Qwen/Qwen2.5-1.5B-Instruct-GGUF/resolve/main/qwen2.5-1.5b-instruct-q4_k_m.gguf"
+    #   Source: https://huggingface.co/Qwen/Qwen3.5-1.5B-Instruct-GGUF
+    qwen35-1.5b-q4:
+      name: "Qwen3.5-1.5B-Instruct-Q4_K_M"
+      filename: "qwen3.5-1.5b-instruct-q4_k_m.gguf"
+      url: "https://huggingface.co/Qwen/Qwen3.5-1.5B-Instruct-GGUF/resolve/main/qwen3.5-1.5b-instruct-q4_k_m.gguf"
       size_gb: 1.0
       context_window: 4096
       local_path: "models/llm/"
@@ -88,7 +88,7 @@ models:
       quantization: "Q4_K_M"
       params_b: 3.8
       chat_format: "phi3"
-      notes: "Legacy default (pre-2026). 2.2 GB. Slower than Qwen2.5-0.5B. Use if you prefer Phi-3."
+      notes: "Legacy default (pre-2026). 2.2 GB. Slower than Qwen3.5-0.8B. Use if you prefer Phi-3."
 
     # ALTERNATIVE: Mistral-7B-Instruct-v0.2 Q4_K_M (use with AirLLM engine)
     #   7B parameters — smartest, but exceeds single-process 4 GB limit alone

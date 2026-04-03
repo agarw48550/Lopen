@@ -134,14 +134,14 @@ pip install sounddevice   # bundles PortAudio — no system library needed
 
 ---
 
-## Model downloads (Qwen2.5-0.5B, April 2026 default)
+## Model downloads (Qwen3.5-0.8B, April 2026 default)
 
 ```bash
 bash scripts/download_models.sh
 ```
 
 This downloads:
-- **Qwen2.5-0.5B-Instruct Q4_K_M** (~360 MB) — ultra-fast default LLM
+- **Qwen3.5-0.8B-Instruct Q4_K_M** (~0.55 GB) — ultra-fast default LLM
 - **whisper-tiny** (~39 MB) — speech recognition
 - **Piper ryan-high ONNX** (~65 MB) — TTS model
 
