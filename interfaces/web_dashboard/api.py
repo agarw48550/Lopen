@@ -59,7 +59,7 @@ def build_router(templates: Jinja2Templates) -> APIRouter:
                 return {"response": str(response)}
             except Exception as exc:
                 logger.error("Chat route error: %s", exc)
-                return {"response": f"Error: {exc}"}
+                return {"response": "An error occurred processing your request."}
         return {"response": "[No agent backend configured]"}
 
     @router.get("/tasks", tags=["Tasks"])
