@@ -76,7 +76,30 @@ voice:
   wake_word: Lopen
   asr_binary: null  # path to whisper.cpp binary, null = auto-detect
   tts_binary: null  # path to piper binary, null = auto-detect
-  tts_voice: en_US-ryan-high  # male voice
+  tts_voice: en_US-ryan-high  # male voice (legacy fallback TTS)
+
+  # ---------------------------------------------------------------------------
+  # Audio-to-audio model (primary pipeline — April 2026)
+  # ---------------------------------------------------------------------------
+  # Set audio_model to the model_id string (HuggingFace or "none" to disable).
+  # When enabled, Lopen uses direct audio-to-audio inference (no ASR/TTS hop).
+  # Falls back to classic ASR+LLM+TTS pipeline when audio_model is "none".
+  audio_model: "LiquidAI/LFM2.5-Audio-1.5B"   # "none" to disable
+
+  # Language for voice interaction: "en" | "hi" | "zh"
+  # The audio model supports all three; legacy ASR (whisper-tiny) is EN only.
+  language: "en"
+
+  # Emotion-adaptive interaction:
+  #   When true, the audio model detects the user's emotional tone and adapts
+  #   the reply's prosody to match (e.g. excited → excited reply, sad → calm).
+  emotion_mode: true
+
+  # LLM fallback threshold:
+  #   When the audio model emits [DEEP_THINK] / [REASONING_NEEDED] markers,
+  #   the query is automatically forwarded to Qwen3.5-0.8B for deep reasoning.
+  #   Set to false to disable automatic fallback (audio model handles everything).
+  llm_fallback_enabled: true
 
 whatsapp:
   enabled: false  # set to true after QR scan setup
