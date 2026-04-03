@@ -94,7 +94,7 @@ _TAGLINES = [
     "Think big. Run lean. Lopen is on it.",
     "From homework to hacking — your Mac's new best friend.",
     "All local. All private. All yours.",
-    "Powered by Qwen2.5 · <1s responses · Sub-500MB model footprint",
+    "Powered by Qwen3.5 · <1s responses · Sub-600MB model footprint",
 ]
 
 _GREETINGS = [
@@ -592,8 +592,8 @@ def _cmd_memory(state: CLIState, _args: str) -> None:
         print()
         print(f"  {bold('Model RAM estimates:')}")
         models_info = [
-            ("Qwen2.5-0.5B Q4_K_M  (default)", "~0.36 GB"),
-            ("Qwen2.5-1.5B Q4_K_M  (quality)",  "~1.0 GB"),
+            ("Qwen3.5-0.8B Q4_K_M  (default)", "~0.55 GB"),
+            ("Qwen3.5-1.5B Q4_K_M  (quality)",  "~1.0 GB"),
             ("Phi-3-mini Q4_K_M    (legacy)",   "~2.2 GB"),
             ("whisper-tiny (ASR)",               "~0.08 GB"),
             ("Piper TTS",                        "~0.07 GB"),
@@ -868,8 +868,8 @@ def _print_about() -> None:
         ("Version",      "April 2026"),
         ("Wake word",    "\"Lopen\""),
         ("Architecture", "Intent-driven, plugin-extensible, multi-agent"),
-        ("LLM",          "Qwen2.5-0.5B-Instruct Q4_K_M (default, <1s responses)"),
-        ("LLM alt",      "Qwen2.5-1.5B Q4_K_M (quality) · Phi-3-mini (legacy)"),
+        ("LLM",          "Qwen3.5-0.8B-Instruct Q4_K_M (default, <1s responses)"),
+        ("LLM alt",      "Qwen3.5-1.5B Q4_K_M (quality) · Phi-3-mini (legacy)"),
         ("ASR",          "whisper.cpp tiny (local, offline)"),
         ("TTS",          "Piper TTS — en_US-ryan-high (natural male voice)"),
         ("Safety",       "NemoClaw-inspired guardrails + PII redaction"),

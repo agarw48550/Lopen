@@ -5,14 +5,14 @@ Priority:
   2. subprocess call to llama.cpp binary
   3. Mock response (clearly logged)
 
-Default model (April 2026): Qwen2.5-0.5B-Instruct Q4_K_M
-  - File:   models/llm/qwen2.5-0.5b-instruct-q4_k_m.gguf
-  - RAM:    ~360 MB
+Default model (April 2026): Qwen3.5-0.8B-Instruct Q4_K_M
+  - File:   models/llm/qwen3.5-0.8b-instruct-q4_k_m.gguf
+  - RAM:    ~0.55 GB
   - Speed:  8-12 tok/s on Intel Mac → first response <1s
   - Format: ChatML  (<|im_start|>system\n…<|im_end|>)
 
 Supported chat formats:
-  - "chatml"  — Qwen2.5, Qwen2, Mistral-Instruct (default)
+  - "chatml"  — Qwen3.5, Qwen2, Mistral-Instruct (default)
   - "phi3"    — Phi-3-mini  (<|user|>…<|end|>)
   - "llama2"  — Llama-2/Mistral legacy  ([INST] … [/INST])
   - "raw"     — no special tokens (use for base/non-instruct models)
@@ -108,7 +108,7 @@ class LLMAdapter:
     Speed tuning for <2s responses on 2017 Intel MacBook Pro:
     - Default context_window=2048 (was 4096) — halves memory & first-token latency
     - Default max_tokens=256 (was 512) — faster replies for most tasks
-    - Qwen2.5-0.5B Q4_K_M: ~360 MB, 8-12 tok/s → first response <1s
+    - Qwen3.5-0.8B Q4_K_M: ~0.55 GB, 8-12 tok/s → first response <1s
     """
 
     def __init__(
@@ -126,7 +126,7 @@ class LLMAdapter:
         self.model_path = (
             model_path
             or os.environ.get("LOPEN_MODEL_PATH", "")
-            or str(Path("models/llm/qwen2.5-0.5b-instruct-q4_k_m.gguf"))
+            or str(Path("models/llm/qwen3.5-0.8b-instruct-q4_k_m.gguf"))
         )
         self.context_window = context_window
         self.temperature = temperature
@@ -183,7 +183,7 @@ class LLMAdapter:
         """Generate a chat response.
 
         Wraps *message* in the correct instruct template for the active model
-        (ChatML for Qwen2.5, Phi-3 format for Phi-3-mini, etc.) then calls
+        (ChatML for Qwen3.5, Phi-3 format for Phi-3-mini, etc.) then calls
         ``generate()``.  Use this instead of ``generate()`` for all conversational
         or task-oriented queries.
         """

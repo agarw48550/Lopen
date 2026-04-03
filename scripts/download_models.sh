@@ -2,21 +2,21 @@
 # download_models.sh — Download AI models for Lopen (April 2026)
 #
 # Usage:
-#   bash scripts/download_models.sh              # default stack (Qwen2.5-0.5B + whisper-tiny + piper-ryan)
-#   bash scripts/download_models.sh --quality    # use Qwen2.5-1.5B instead (better quality, 1 GB)
+#   bash scripts/download_models.sh              # default stack (Qwen3.5-0.8B + whisper-tiny + piper-ryan)
+#   bash scripts/download_models.sh --quality    # use Qwen3.5-1.5B instead (better quality, 1 GB)
 #   bash scripts/download_models.sh --phi3       # use Phi-3-mini instead (legacy, 2.2 GB)
 #   bash scripts/download_models.sh --mistral    # also download Mistral-7B Q4_K_M (for AirLLM engine)
 #   bash scripts/download_models.sh --base       # use whisper-base instead of tiny (better accuracy)
 #
 # Memory budget (default stack — April 2026):
-#   - Qwen2.5-0.5B-Instruct Q4_K_M:  360 MB   ← ultra-fast default LLM
+#   - Qwen3.5-0.8B-Instruct Q4_K_M:  550 MB   ← ultra-fast default LLM
 #   - whisper-tiny:                    39 MB
 #   - piper-ryan-high:                 65 MB
 #   ──────────────────────────────────────────
-#   - Total:                          464 MB  ✓ leaves 3.5+ GB free
+#   - Total:                          654 MB  ✓ leaves 3.3+ GB free
 #
-# Why Qwen2.5-0.5B over Phi-3-mini (previous default)?
-#   • 6× smaller (360 MB vs 2.2 GB) — downloads in seconds, not minutes
+# Why Qwen3.5-0.8B over Phi-3-mini (previous default)?
+#   • 4× smaller (550 MB vs 2.2 GB) — downloads in seconds, not minutes
 #   • 3× faster throughput on Intel Mac (~10 tok/s vs ~3 tok/s)
 #   • First response reliably under 1 second
 #   • Instruction-tuned; matches Phi-3-mini quality for everyday tasks
@@ -82,9 +82,9 @@ _download() {
 }
 
 # ---------------------------------------------------------------------------
-# LLM: Qwen2.5-0.5B-Instruct Q4_K_M  (~360 MB) — DEFAULT
+# LLM: Qwen3.5-0.8B-Instruct Q4_K_M  (~0.55 GB) — DEFAULT
 #   Ultra-fast, tiny RAM footprint, instruction-tuned for chat/tasks.
-#   Source: https://huggingface.co/Qwen/Qwen2.5-0.5B-Instruct-GGUF
+#   Source: https://huggingface.co/Qwen/Qwen3.5-0.8B-Instruct-GGUF
 # ---------------------------------------------------------------------------
 echo ""
 echo "=== LLM model ==="
@@ -95,15 +95,15 @@ if [ "$USE_PHI3" = true ]; then
     echo ""
     echo "    [note] Using Phi-3-mini. Update config/models.yaml: llm.active: phi3-mini-q4"
 elif [ "$USE_QWEN_1_5B" = true ]; then
-    LLM_FILE="$MODELS_LLM/qwen2.5-1.5b-instruct-q4_k_m.gguf"
-    LLM_URL="https://huggingface.co/Qwen/Qwen2.5-1.5B-Instruct-GGUF/resolve/main/qwen2.5-1.5b-instruct-q4_k_m.gguf"
-    _download "$LLM_FILE" "$LLM_URL" "Qwen2.5-1.5B-Instruct Q4_K_M (~1.0 GB, quality upgrade)" || true
+    LLM_FILE="$MODELS_LLM/qwen3.5-1.5b-instruct-q4_k_m.gguf"
+    LLM_URL="https://huggingface.co/Qwen/Qwen3.5-1.5B-Instruct-GGUF/resolve/main/qwen3.5-1.5b-instruct-q4_k_m.gguf"
+    _download "$LLM_FILE" "$LLM_URL" "Qwen3.5-1.5B-Instruct Q4_K_M (~1.0 GB, quality upgrade)" || true
     echo ""
-    echo "    [note] Using Qwen2.5-1.5B. Update config/models.yaml: llm.active: qwen25-1.5b-q4"
+    echo "    [note] Using Qwen3.5-1.5B. Update config/models.yaml: llm.active: qwen35-1.5b-q4"
 else
-    LLM_FILE="$MODELS_LLM/qwen2.5-0.5b-instruct-q4_k_m.gguf"
-    LLM_URL="https://huggingface.co/Qwen/Qwen2.5-0.5B-Instruct-GGUF/resolve/main/qwen2.5-0.5b-instruct-q4_k_m.gguf"
-    _download "$LLM_FILE" "$LLM_URL" "Qwen2.5-0.5B-Instruct Q4_K_M (~360 MB, ultra-fast default)" || true
+    LLM_FILE="$MODELS_LLM/qwen3.5-0.8b-instruct-q4_k_m.gguf"
+    LLM_URL="https://huggingface.co/Qwen/Qwen3.5-0.8B-Instruct-GGUF/resolve/main/qwen3.5-0.8b-instruct-q4_k_m.gguf"
+    _download "$LLM_FILE" "$LLM_URL" "Qwen3.5-0.8B-Instruct Q4_K_M (~0.55 GB, ultra-fast default)" || true
 fi
 
 # Create generic model.gguf symlink (used by config/settings.yaml fallback)
@@ -177,4 +177,3 @@ echo "    Next steps:"
 echo "      bash scripts/setup_venv.sh    # install Python dependencies (if not done)"
 echo "      bash scripts/start.sh         # start Lopen"
 echo "      python -m pytest tests/ -q   # run all tests"
-
