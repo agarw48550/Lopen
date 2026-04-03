@@ -13,6 +13,9 @@ New in this version:
   - Usage analytics via :class:`~agent_core.analytics.Analytics` (local SQLite only).
   - New REST endpoints: ``GET /plugins``, ``POST /plugins/reload``,
     ``GET /analytics``, ``POST /feedback``.
+  - AirLLM-backed LLM engine for efficient large-model inference.
+  - OMLX-inspired multi-agent dispatcher (planner/executor/reflector).
+  - NemoClaw-inspired safety engine (guardrails, tool filter, PII redaction).
 """
 
 from __future__ import annotations
@@ -100,17 +103,18 @@ def _startup() -> None:
     db = SQLiteDB()
     _state["db"] = db
 
-    # LLM
+    # LLM — prefer AirLLMEngine, fall back to LLMAdapter
     llm_cfg = settings.get("llm", {})
-    from llm.llm_adapter import LLMAdapter
-    llm = LLMAdapter(
-        model_path=os.environ.get("LOPEN_LLM_MODEL_PATH", llm_cfg.get("model_path")),
-        context_window=llm_cfg.get("context_window", 2048),
-        temperature=llm_cfg.get("temperature", 0.7),
-        max_tokens=llm_cfg.get("max_tokens", 512),
-        memory_conservative=llm_cfg.get("memory_conservative", True),
-    )
+    engine_name = os.environ.get("LOPEN_LLM_ENGINE", llm_cfg.get("engine", "auto"))
+    model_path = os.environ.get("LOPEN_LLM_MODEL_PATH", llm_cfg.get("model_path"))
+    llm = _build_llm(engine_name, model_path, llm_cfg)
     _state["llm"] = llm
+
+    # Safety Engine (NemoClaw-inspired)
+    from agent_core.safety import SafetyEngine
+    safety_engine = SafetyEngine.from_config("config/settings.yaml")
+    _state["safety_engine"] = safety_engine
+    logger.info("Safety engine ready (enabled=%s)", safety_engine.enabled)
 
     # Memory
     mem_cfg = settings.get("memory", {})
@@ -191,6 +195,22 @@ def _startup() -> None:
     task_queue = TaskQueue(max_size=100)
     _state["task_queue"] = task_queue
 
+    # Multi-agent dispatcher (OMLX-inspired)
+    ma_cfg = settings.get("multi_agent", {})
+    if ma_cfg.get("enabled", True):
+        try:
+            from agent_core.multi_agent import AgentDispatcher
+            dispatcher = AgentDispatcher.from_config(
+                ma_cfg.get("config_path", "config/agents.yaml")
+            )
+            _state["dispatcher"] = dispatcher
+            logger.info("Multi-agent dispatcher ready")
+        except Exception as exc:
+            logger.warning("Multi-agent dispatcher failed to initialise: %s — single-agent mode active", exc)
+            _state["dispatcher"] = None
+    else:
+        _state["dispatcher"] = None
+
     # Health monitors
     from system_health.ram_watchdog import RamWatchdog
     from system_health.disk_check import DiskCheck
@@ -224,6 +244,41 @@ def _startup() -> None:
     # APScheduler
     _start_scheduler(settings)
     logger.info("Lopen orchestrator startup complete")
+
+
+def _build_llm(engine: str, model_path: str | None, llm_cfg: dict) -> Any:
+    """Construct the best available LLM backend.
+
+    Priority:
+      1. AirLLMEngine (if engine='airllm' or engine='auto' and airllm installed)
+      2. LLMAdapter (llama-cpp-python or subprocess llama.cpp)
+      3. Mock (logged prominently)
+    """
+    kwargs = {
+        "model_path": model_path,
+        "context_window": llm_cfg.get("context_window", 2048),
+        "temperature": llm_cfg.get("temperature", 0.7),
+        "max_tokens": llm_cfg.get("max_tokens", 512),
+        "memory_conservative": llm_cfg.get("memory_conservative", True),
+    }
+    if engine in ("airllm", "auto"):
+        try:
+            from llm.airllm_engine import AirLLMEngine
+            instance = AirLLMEngine(
+                **kwargs,
+                engine=None if engine == "auto" else engine,
+                compression=llm_cfg.get("compression", "4bit"),
+                max_gpu_memory=llm_cfg.get("max_gpu_memory", 0),
+            )
+            logger.info("LLM backend: AirLLMEngine (engine=%s)", instance.backend)
+            return instance
+        except Exception as exc:
+            logger.warning("AirLLMEngine unavailable (%s), falling back to LLMAdapter", exc)
+
+    from llm.llm_adapter import LLMAdapter
+    instance = LLMAdapter(**kwargs)
+    logger.info("LLM backend: LLMAdapter (mode=%s)", instance.mode)
+    return instance
 
 
 def _register_tools(registry: Any, router_obj: Any, llm: Any) -> None:
@@ -327,6 +382,10 @@ def _shutdown() -> None:
     memory = _state.get("memory")
     if memory:
         memory.save_to_db()
+    # Unload multi-agent pool
+    dispatcher = _state.get("dispatcher")
+    if dispatcher:
+        dispatcher.unload_all()
     if _scheduler and _scheduler.running:
         _scheduler.shutdown(wait=False)
     logger.info("Lopen orchestrator shutdown complete")
@@ -364,7 +423,15 @@ async def status() -> dict[str, Any]:
     task_queue = _state.get("task_queue")
     memory = _state.get("memory")
     registry = _state.get("registry")
-    return {
+    safety_engine = _state.get("safety_engine")
+    dispatcher = _state.get("dispatcher")
+    llm = _state.get("llm")
+    # Determine llm_mode/backend from either AirLLMEngine or LLMAdapter
+    llm_mode = (
+        getattr(llm, "backend", None) or getattr(llm, "mode", "unknown")
+        if llm else "unknown"
+    )
+    result: dict[str, Any] = {
         "status": "running",
         "tasks_pending": sum(
             1 for t in (task_queue.list_tasks() if task_queue else [])
@@ -372,8 +439,11 @@ async def status() -> dict[str, Any]:
         ),
         "memory_turns": memory.turn_count if memory else 0,
         "tools_registered": len(registry) if registry else 0,
-        "llm_mode": _state["llm"].mode if "llm" in _state else "unknown",
+        "llm_mode": llm_mode,
+        "safety": safety_engine.status() if safety_engine else {"enabled": False},
+        "multi_agent": dispatcher.pool_status() if dispatcher else {"enabled": False},
     }
+    return result
 
 
 @router.post("/chat", tags=["Chat"])
@@ -392,9 +462,22 @@ async def chat(request: "Request") -> dict[str, Any]:
     registry = _state.get("registry")
     analytics = _state.get("analytics")
     confirmation_gate = _state.get("confirmation_gate")
+    safety_engine = _state.get("safety_engine")
+    dispatcher = _state.get("dispatcher")
 
     if not planner or not router_obj:
         return {"response": "[Orchestrator] Agent not initialised yet."}
+
+    # --- Safety: check input before any processing ---
+    if safety_engine:
+        safety_result = safety_engine.check_input(query)
+        if not safety_result.safe:
+            logger.warning("Safety block on input: %s", safety_result.reason)
+            return {
+                "response": safety_engine.refusal_message(),
+                "safety_blocked": True,
+                "reason": safety_result.reason,
+            }
 
     if memory:
         memory.add_turn("user", query)
@@ -410,6 +493,14 @@ async def chat(request: "Request") -> dict[str, Any]:
 
         if best_tool is not None and confidence > 0.0:
             selected_tool_name = best_tool.name
+
+            # Safety: check tool is permitted
+            if safety_engine:
+                tool_check = safety_engine.check_tool(selected_tool_name)
+                if not tool_check.safe:
+                    logger.warning("Safety block on tool '%s': %s", selected_tool_name, tool_check.reason)
+                    selected_tool_name = "llm_general"
+                    confidence = 0.0
 
             # Log intent analytics
             if analytics:
@@ -432,36 +523,44 @@ async def chat(request: "Request") -> dict[str, Any]:
                         "confidence": round(confidence, 3),
                     }
 
-    # --- Execute via Router (with dynamic tool_name override) ---
-    # Compose arguments for the selected tool
-    kwargs: dict[str, Any] = {}
-    if arg_composer and selected_tool_name != "llm_general":
-        kwargs = arg_composer.compose(query, tool_name=selected_tool_name)
-        # Remove the redundant "query" key — it's passed as positional arg
-        kwargs.pop("query", None)
-
-    try:
-        handler = router_obj._handlers.get(selected_tool_name) or router_obj._handlers.get("llm_general")
-        if handler is None:
-            # Absolute fallback: keyword-based planner
-            intent = planner.classify_intent(query)
-            response = await router_obj.route_async(intent, query)
-        else:
-            import asyncio
-            import inspect
-            if inspect.iscoroutinefunction(handler):
-                response = await handler(query, **kwargs)
-            else:
-                loop = asyncio.get_event_loop()
-                response = await loop.run_in_executor(None, lambda: handler(query, **kwargs))
-        response_str = str(response)
-        success = True
-    except Exception as exc:
-        logger.error("Chat error: %s", exc)
-        response_str = f"Error processing request: {exc}"
-        success = False
+    # --- Multi-agent dispatcher (if available and enabled) ---
+    if dispatcher is not None:
+        try:
+            intent_result_obj = intent_engine.analyze(query) if intent_engine else None
+            dispatch_result = await dispatcher.dispatch(
+                query=query,
+                intent_result=intent_result_obj,
+                tools=registry,
+            )
+            response_str = dispatch_result.final_response
+            agents_used = dispatch_result.agents_used
+            success = True
+        except Exception as exc:
+            logger.error("Multi-agent dispatch error: %s — falling back to single agent", exc)
+            dispatch_result = None
+            agents_used = []
+            # Fall through to single-agent path below
+            response_str, success = await _single_agent_response(
+                query, selected_tool_name, planner, router_obj, arg_composer, kwargs={}
+            )
+    else:
+        agents_used = []
+        # --- Single-agent path ---
+        kwargs: dict[str, Any] = {}
+        if arg_composer and selected_tool_name != "llm_general":
+            kwargs = arg_composer.compose(query, tool_name=selected_tool_name)
+            kwargs.pop("query", None)
+        response_str, success = await _single_agent_response(
+            query, selected_tool_name, planner, router_obj, arg_composer=None, kwargs=kwargs
+        )
 
     latency_ms = time.time() * 1000 - start_ms
+
+    # --- Safety: check output before returning ---
+    if safety_engine:
+        output_result = safety_engine.check_output(response_str)
+        if output_result.modified_text is not None:
+            response_str = output_result.modified_text
 
     # Record analytics
     if analytics:
@@ -475,11 +574,42 @@ async def chat(request: "Request") -> dict[str, Any]:
         memory.add_turn("assistant", response_str)
         memory.save_to_db()
 
-    return {
+    result: dict[str, Any] = {
         "response": response_str,
         "tool": selected_tool_name,
         "confidence": round(confidence, 3),
     }
+    if agents_used:
+        result["agents_used"] = agents_used
+    return result
+
+
+async def _single_agent_response(
+    query: str,
+    selected_tool_name: str,
+    planner: Any,
+    router_obj: Any,
+    arg_composer: Any,
+    kwargs: dict,
+) -> tuple[str, bool]:
+    """Execute a single-agent tool invocation, returning (response_str, success)."""
+    try:
+        handler = router_obj._handlers.get(selected_tool_name) or router_obj._handlers.get("llm_general")
+        if handler is None:
+            intent = planner.classify_intent(query)
+            response = await router_obj.route_async(intent, query)
+        else:
+            import asyncio
+            import inspect
+            if inspect.iscoroutinefunction(handler):
+                response = await handler(query, **kwargs)
+            else:
+                loop = asyncio.get_event_loop()
+                response = await loop.run_in_executor(None, lambda: handler(query, **kwargs))
+        return str(response), True
+    except Exception as exc:
+        logger.error("Single-agent chat error: %s", exc)
+        return f"Error processing request: {exc}", False
 
 
 @router.get("/tasks", tags=["Tasks"])
@@ -574,6 +704,24 @@ async def post_feedback(request: "Request") -> dict[str, str]:
         analytics.log_feedback(tool_name, query, was_helpful)
 
     return {"status": "recorded"}
+
+
+@router.get("/safety", tags=["Safety"])
+async def get_safety_status() -> dict[str, Any]:
+    """Return safety engine status and configuration."""
+    safety_engine = _state.get("safety_engine")
+    if not safety_engine:
+        return {"enabled": False, "message": "Safety engine not initialised"}
+    return safety_engine.status()
+
+
+@router.get("/agents", tags=["Agents"])
+async def get_agents_status() -> dict[str, Any]:
+    """Return multi-agent dispatcher pool status."""
+    dispatcher = _state.get("dispatcher")
+    if not dispatcher:
+        return {"enabled": False, "message": "Multi-agent dispatcher not enabled"}
+    return {"enabled": True, **dispatcher.pool_status()}
 
 
 app.include_router(router)

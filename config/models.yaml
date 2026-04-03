@@ -1,25 +1,129 @@
+##############################################################################
+# Lopen model registry
+#
+# Each model entry documents: name, filename, download URL, size, and local
+# path.  The download script (scripts/download_models.sh) reads this file to
+# fetch only what is needed.
+#
+# Memory budget (4 GB hard limit):
+#   - LLM (Phi-3-mini Q4_K_M, active):    ~2.2 GB
+#   - Whisper-tiny ASR (when active):        ~80 MB
+#   - Piper TTS (when active):               ~70 MB
+#   - Python / FastAPI overhead:            ~350 MB
+#   - Total:                               ~2.7 GB  ✓  (1.3 GB headroom)
+#
+# For a smarter but larger LLM (Mistral-7B Q4_K_M, ~4.0 GB):
+#   - Swap `llm.active` to `mistral-7b` (see below)
+#   - Disable reflection agent (config/agents.yaml → enable_reflection: false)
+#   - Set llm.engine: airllm in config/settings.yaml (layer-split loading)
+##############################################################################
+
 models:
+  # -------------------------------------------------------------------------
+  # Main LLM
+  # -------------------------------------------------------------------------
+  # Primary (default): Phi-3-mini-4k-instruct Q4_K_M
+  #   Smart instruct model, 3.8B params, 4K context, Q4_K_M GGUF
+  #   Size: ~2.2 GB  — leaves headroom for multi-agent use
+  #   Source: https://huggingface.co/microsoft/Phi-3-mini-4k-instruct-gguf
   llm:
-    name: "Phi-3-mini-4k-instruct-q4"
-    filename: "Phi-3-mini-4k-instruct-q4.gguf"
-    url: "https://huggingface.co/microsoft/Phi-3-mini-4k-instruct-gguf/resolve/main/Phi-3-mini-4k-instruct-q4.gguf"
-    size_gb: 2.2
-    context_window: 4096
-    local_path: "models/llm/"
+    active: "phi3-mini-q4"   # change to "mistral-7b-q4" for the smarter model
 
+    phi3-mini-q4:
+      name: "Phi-3-mini-4k-instruct-q4"
+      filename: "Phi-3-mini-4k-instruct-q4.gguf"
+      url: "https://huggingface.co/microsoft/Phi-3-mini-4k-instruct-gguf/resolve/main/Phi-3-mini-4k-instruct-q4.gguf"
+      size_gb: 2.2
+      context_window: 4096
+      local_path: "models/llm/"
+      quantization: "Q4_K_M"
+      params_b: 3.8
+      notes: "Default model. Best balance of quality and RAM for multi-agent use."
+
+    # Alternative: Mistral-7B-Instruct-v0.2 Q4_K_M
+    #   Significantly smarter than Phi-3-mini; use with AirLLM engine for 4 GB fit
+    #   Size: ~4.1 GB  — use alone, disable reflection agent
+    #   Source: https://huggingface.co/TheBloke/Mistral-7B-Instruct-v0.2-GGUF
+    mistral-7b-q4:
+      name: "Mistral-7B-Instruct-v0.2-Q4_K_M"
+      filename: "mistral-7b-instruct-v0.2.Q4_K_M.gguf"
+      url: "https://huggingface.co/TheBloke/Mistral-7B-Instruct-v0.2-GGUF/resolve/main/mistral-7b-instruct-v0.2.Q4_K_M.gguf"
+      size_gb: 4.1
+      context_window: 4096
+      local_path: "models/llm/"
+      quantization: "Q4_K_M"
+      params_b: 7
+      notes: "Smarter model. Requires AirLLM engine (engine: airllm in settings.yaml). Use alone — disable reflection agent."
+      engine_hint: "airllm"
+
+  # -------------------------------------------------------------------------
+  # ASR (Speech-to-Text)
+  # -------------------------------------------------------------------------
+  # whisper.cpp tiny — extremely lightweight (39 MB), fast on CPU
+  # Good enough for wake-word + short commands; upgrade to base for better accuracy
   asr:
-    name: "whisper-tiny"
-    binary: "whisper.cpp"
-    model_file: "ggml-tiny.en.bin"
-    url: "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-tiny.en.bin"
-    size_mb: 39
-    local_path: "models/asr/"
+    active: "whisper-tiny"
 
+    whisper-tiny:
+      name: "whisper-tiny"
+      binary: "whisper.cpp"
+      model_file: "ggml-tiny.en.bin"
+      url: "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-tiny.en.bin"
+      size_mb: 39
+      local_path: "models/asr/"
+      notes: "Default. Very fast, ~39 MB. English only."
+
+    whisper-base:
+      name: "whisper-base"
+      binary: "whisper.cpp"
+      model_file: "ggml-base.en.bin"
+      url: "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-base.en.bin"
+      size_mb: 142
+      local_path: "models/asr/"
+      notes: "Better accuracy, 142 MB. Recommended if ASR errors are frequent."
+
+  # -------------------------------------------------------------------------
+  # TTS (Text-to-Speech)
+  # -------------------------------------------------------------------------
+  # Piper TTS — low-latency, offline, natural male voice
+  # en_US-ryan-high: high-quality male voice, ~65 MB ONNX model
   tts:
-    name: "piper-ryan-high"
-    voice: "en_US-ryan-high"
-    model_file: "en_US-ryan-high.onnx"
-    url: "https://huggingface.co/rhasspy/piper-voices/resolve/v1.0.0/en/en_US/ryan/high/en_US-ryan-high.onnx"
-    config_url: "https://huggingface.co/rhasspy/piper-voices/resolve/v1.0.0/en/en_US/ryan/high/en_US-ryan-high.onnx.json"
-    size_mb: 65
-    local_path: "models/tts/"
+    active: "piper-ryan-high"
+
+    piper-ryan-high:
+      name: "piper-ryan-high"
+      voice: "en_US-ryan-high"
+      model_file: "en_US-ryan-high.onnx"
+      config_file: "en_US-ryan-high.onnx.json"
+      url: "https://huggingface.co/rhasspy/piper-voices/resolve/v1.0.0/en/en_US/ryan/high/en_US-ryan-high.onnx"
+      config_url: "https://huggingface.co/rhasspy/piper-voices/resolve/v1.0.0/en/en_US/ryan/high/en_US-ryan-high.onnx.json"
+      size_mb: 65
+      local_path: "models/tts/"
+      notes: "Default. Natural male voice, low latency."
+
+    piper-ryan-medium:
+      name: "piper-ryan-medium"
+      voice: "en_US-ryan-medium"
+      model_file: "en_US-ryan-medium.onnx"
+      config_file: "en_US-ryan-medium.onnx.json"
+      url: "https://huggingface.co/rhasspy/piper-voices/resolve/v1.0.0/en/en_US/ryan/medium/en_US-ryan-medium.onnx"
+      config_url: "https://huggingface.co/rhasspy/piper-voices/resolve/v1.0.0/en/en_US/ryan/medium/en_US-ryan-medium.onnx.json"
+      size_mb: 63
+      local_path: "models/tts/"
+      notes: "Slightly faster than high quality. Alternative male voice."
+
+  # -------------------------------------------------------------------------
+  # Optional: Embedding model for RAG / semantic search
+  # -------------------------------------------------------------------------
+  # all-MiniLM-L6-v2 — tiny sentence-transformer, 22 MB, 384-dim embeddings
+  # Used by vector_cache.py for semantic memory search
+  embedding:
+    active: "minilm-l6"
+
+    minilm-l6:
+      name: "all-MiniLM-L6-v2"
+      source: "sentence-transformers/all-MiniLM-L6-v2"
+      size_mb: 22
+      dims: 384
+      notes: "Optional. Enable in settings.yaml: memory.use_embeddings: true"
+      install: "pip install sentence-transformers"

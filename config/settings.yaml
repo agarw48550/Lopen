@@ -4,16 +4,38 @@ lopen:
   log_level: INFO
   log_dir: logs/
 
+# ---------------------------------------------------------------------------
+# LLM engine settings
+# ---------------------------------------------------------------------------
+# engine options:
+#   auto       — auto-select best available (airllm → llama_cpp → mock)
+#   airllm     — layer-split loading for 7B+ models on 4 GB RAM
+#   llama_cpp  — GGUF quantized models via llama-cpp-python (default for 3-4B)
+#   mock       — no model, returns placeholder responses (CI/testing)
+#
+# For Phi-3-mini (2.2 GB) — default, works with multi-agent:
+#   engine: auto
+#   model_path: models/llm/model.gguf
+#
+# For Mistral-7B Q4 (4.1 GB) — smarter but requires AirLLM and solo operation:
+#   engine: airllm
+#   model_path: models/llm/mistral-7b-instruct-v0.2.Q4_K_M.gguf
+#   compression: 4bit
+#   (also: set agents.ram_budget_gb: 3.8 and enable_reflection: false in agents.yaml)
 llm:
+  engine: auto          # auto | airllm | llama_cpp | mock
   model_path: models/llm/model.gguf
   context_window: 2048
   temperature: 0.7
   max_tokens: 512
-  memory_conservative: true  # unload model between calls
+  memory_conservative: true   # unload model between calls (recommended for <4 GB)
+  compression: 4bit           # informational; applies to AirLLM backend
+  max_gpu_memory: 0           # 0 = CPU-only (correct for 2017 MacBook Pro)
 
 memory:
   max_turns: 20
   summary_threshold: 15  # summarise when turns exceed this
+  use_embeddings: false   # set true to enable semantic memory search (requires sentence-transformers)
 
 # ---------------------------------------------------------------------------
 # General-purpose intent & routing (no extra RAM — pure Python TF-IDF)
@@ -79,3 +101,36 @@ health:
   log_rotation_threshold_mb: 50
   heartbeat_interval: 60  # seconds
   cache_cleanup_interval: 86400  # daily (seconds)
+
+# ---------------------------------------------------------------------------
+# Safety (NemoClaw-inspired guardrails)
+# ---------------------------------------------------------------------------
+# All checks are local — no data leaves the machine.
+# Set enabled: false or export LOPEN_SAFETY_DISABLED=1 to bypass entirely.
+safety:
+  enabled: true
+  input_guardrails: true          # block harmful input patterns
+  output_guardrails: true         # redact PII from LLM output
+  tool_filter: true               # enforce tool allowlist/denylist
+  llm_judge: false                # LLM-based safety classification (extra RAM)
+  blocklist_path: null            # optional path to custom blocklist .txt file
+  topic_blocklist:                # always refuse these topics
+    - self_harm
+    - illegal_weapons
+    - csam
+    - bioweapons
+    - chemical_weapons
+  allowed_tools: []               # empty = all tools allowed (except denied)
+  denied_tools:                   # always blocked tools
+    - dangerous_shell_exec
+    - raw_subprocess
+    - system_format
+
+# ---------------------------------------------------------------------------
+# Multi-agent dispatcher (OMLX-inspired)
+# ---------------------------------------------------------------------------
+# Detailed pool config lives in config/agents.yaml
+# This section enables/disables the dispatcher integration in the orchestrator
+multi_agent:
+  enabled: true                   # set false to use single-agent mode
+  config_path: config/agents.yaml

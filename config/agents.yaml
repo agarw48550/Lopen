@@ -1,0 +1,79 @@
+# config/agents.yaml — Multi-agent dispatcher configuration for Lopen
+#
+# This file configures the OMLX-inspired AgentDispatcher (agent_core/multi_agent.py).
+# Lopen supports running multiple specialised LLM sub-agents concurrently while
+# staying within the 4 GB RAM budget.
+#
+# Memory budget breakdown (default, Phi-3-mini Q4 at 2.2 GB):
+#   - Active LLM (executor agent):    ~2.2 GB
+#   - Python / FastAPI overhead:       ~350 MB
+#   - Whisper ASR (when active):        ~80 MB
+#   - Piper TTS (when active):          ~70 MB
+#   - Total (one active agent):        ~2.7 GB  ✓ within 4 GB budget
+#
+# The planner/reflector/summarizer agents share the same model file as the
+# executor (no extra disk space).  LRU eviction ensures only one agent keeps
+# the model loaded at a time when memory_conservative=true.
+#
+# To enable a larger/smarter model (e.g., Mistral-7B Q4_K_M ≈ 4.0 GB):
+#   - Lower max_concurrent_agents to 1
+#   - Set ram_budget_gb to 3.8
+#   - Set enable_reflection: false (saves ~200 MB peak)
+#   - Use engine: airllm in settings.yaml (layer-split loading)
+
+agents:
+  # -------------------------------------------------------------------------
+  # Global memory budget
+  # -------------------------------------------------------------------------
+  ram_budget_gb: 3.5          # hard ceiling; LRU eviction triggers above this
+  max_concurrent_agents: 2    # max agents loaded simultaneously (increase with care)
+  lru_eviction: true          # evict idle agents when RAM pressure is high
+
+  # -------------------------------------------------------------------------
+  # Agentic reasoning pipeline settings
+  # -------------------------------------------------------------------------
+  enable_planning: true       # planner agent decomposes queries into sub-tasks
+  enable_reflection: true     # reflector agent reviews executor output quality
+
+  # -------------------------------------------------------------------------
+  # Agent pool — each entry is a specialised sub-agent
+  # -------------------------------------------------------------------------
+  pool:
+    # Planner: decomposes user requests into ordered sub-tasks
+    # Low context window (1024) and max_tokens (256) keeps RAM minimal
+    - name: planner
+      role: "Decompose user requests into ordered, numbered sub-tasks"
+      model_path: models/llm/model.gguf
+      context_window: 1024
+      max_tokens: 256
+      temperature: 0.5
+      enabled: true
+
+    # Executor: main response agent — highest context for complex answers
+    - name: executor
+      role: "Generate helpful, accurate responses and invoke tools"
+      model_path: models/llm/model.gguf
+      context_window: 2048
+      max_tokens: 512
+      temperature: 0.7
+      enabled: true
+
+    # Reflector: reviews executor output for quality and accuracy
+    # Very low temperature for conservative fact-checking
+    - name: reflector
+      role: "Review assistant responses for accuracy and completeness"
+      model_path: models/llm/model.gguf
+      context_window: 1024
+      max_tokens: 256
+      temperature: 0.3
+      enabled: true
+
+    # Summarizer: compresses conversation history when context grows too long
+    # Runs infrequently; disable to save RAM if not needed
+    - name: summarizer
+      role: "Compress long conversation history into a concise summary"
+      model_path: models/llm/model.gguf
+      context_window: 1024
+      max_tokens: 128
+      temperature: 0.3
+      enabled: true
