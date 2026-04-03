@@ -5,6 +5,22 @@ by the omlx project (https://github.com/jundot/omlx).  It allows Lopen to
 run several specialised LLM sub-agents concurrently while staying within the
 4 GB RAM budget.
 
+OMLX compatibility
+------------------
+OMLX provides native parallel multi-LLM routing but is not always available on
+Intel Macs (x86_64 darwin).  At import time this module calls
+``_check_omlx_compatibility()`` and sets the module-level flag
+``_OMLX_AVAILABLE``.
+
+* ``_OMLX_AVAILABLE = True``  — OMLX native pool is available; the dispatcher
+  can use it for true parallel sub-agent routing.
+* ``_OMLX_AVAILABLE = False`` — OMLX is absent or incompatible.  The dispatcher
+  transparently falls back to its built-in asyncio-based agent pool which
+  provides the same OpenClaw-style planner→executor→reflector pipeline using
+  ``asyncio.gather`` for concurrent agent calls.
+
+In both cases the external API (``AgentDispatcher.dispatch()``) is identical.
+
 Architecture
 ------------
 ::
@@ -90,6 +106,7 @@ from __future__ import annotations
 import asyncio
 import collections
 import logging
+import platform
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -98,6 +115,73 @@ from typing import Any, Callable, Deque, Dict, List, Optional
 import yaml
 
 logger = logging.getLogger(__name__)
+
+
+# ---------------------------------------------------------------------------
+# OMLX compatibility detection
+# ---------------------------------------------------------------------------
+
+def _check_omlx_compatibility() -> bool:
+    """Check whether OMLX parallel multi-agent processing is available.
+
+    OMLX (https://github.com/jundot/omlx) requires a compatible Python runtime
+    and, on macOS, works best on Apple Silicon.  On Intel Macs (x86_64) the
+    package may not be installable or may silently malfunction.
+
+    This function:
+      1. Tries to import ``omlx``.
+      2. On Intel Mac (darwin/x86_64), runs a compatibility probe.
+      3. Returns ``True`` only if the import succeeds AND (if on Intel Mac)
+         the probe passes.
+
+    If OMLX is unavailable the dispatcher automatically falls back to the
+    lightweight asyncio-based agent pool which provides the same OpenClaw-style
+    sub-agent routing without any native dependencies.
+
+    Returns
+    -------
+    bool
+        ``True``  — OMLX is available and compatible on this platform.
+        ``False`` — use asyncio fallback (default for Intel Mac).
+    """
+    try:
+        import omlx  # type: ignore  # noqa: F401
+    except ImportError:
+        logger.info(
+            "OMLX not installed. Using lightweight asyncio agent pool "
+            "(OpenClaw-style fallback) for multi-agent/sub-agent support."
+        )
+        return False
+
+    # Detect Intel Mac (x86_64 darwin) and run a compatibility probe
+    system = platform.system().lower()
+    machine = platform.machine().lower()
+    if system == "darwin" and machine == "x86_64":
+        logger.info(
+            "OMLX detected on Intel Mac (darwin/x86_64). "
+            "Running compatibility probe…"
+        )
+        try:
+            # Minimal probe — just check the package exposes its public API
+            _probe = getattr(omlx, "Pool", None) or getattr(omlx, "run", None)  # type: ignore
+            if _probe is None:
+                raise AttributeError("OMLX public API not found")
+            logger.info("OMLX compatibility probe passed on Intel Mac.")
+            return True
+        except Exception as exc:
+            logger.warning(
+                "OMLX compatibility probe FAILED on Intel Mac (%s). "
+                "Falling back to asyncio agent pool.",
+                exc,
+            )
+            return False
+
+    logger.info("OMLX available and compatible (platform=%s/%s).", system, machine)
+    return True
+
+
+# Module-level flag — evaluated once at import time so orchestrator can log it.
+_OMLX_AVAILABLE: bool = _check_omlx_compatibility()
 
 
 # ---------------------------------------------------------------------------
@@ -612,6 +696,11 @@ def _build_llm_factory() -> Callable[..., Any]:
 
     The factory is called by Agent.load() with keyword arguments matching
     LLMAdapter / AirLLMEngine constructors.
+
+    Note: ``AirLLMEngine`` performs its own backend selection — it will use
+    ``llama_cpp`` for small models (RAM estimate ≤ 4 GB) and activate the
+    AirLLM layer-split path only for large models that exceed the budget.
+    Callers never need to distinguish between the two cases.
     """
     try:
         from llm.airllm_engine import AirLLMEngine

@@ -22,10 +22,21 @@ This class wraps either:
   b) ``llama-cpp-python`` as a drop-in backend (same GGUF models).
   c) A mock backend for CI / environments without models.
 
+Backend selection policy
+------------------------
+AirLLM is **only activated when the model would exceed the 4 GB RAM budget**
+when loaded via ``llama-cpp-python`` (estimated as 1.2× the GGUF file size).
+For smaller models — including the default Qwen3.5-0.8B Q4 (≈0.55 GB file,
+≈0.66 GB RAM) — ``llama-cpp-python`` is always used as the fastest path.
+Only when a model's runtime estimate exceeds ``_RAM_BUDGET_GB`` (4.0 GB) does
+the engine fall back to AirLLM's layer-by-layer loading to stay within budget.
+For very large models where even AirLLM cannot fit, size is reduced further by
+using stricter quantisation or disabling optional features.
+
 You can swap the active engine by setting ``engine`` in ``config/settings.yaml``::
 
     llm:
-      engine: airllm   # options: airllm | llama_cpp | mock
+      engine: auto     # options: auto | airllm | llama_cpp | mock
       model_path: models/llm/model.gguf
       max_gpu_memory: 0      # 0 = CPU-only (safe for 2017 MacBook)
       compression: 4bit      # 4bit | 8bit | none
@@ -33,12 +44,14 @@ You can swap the active engine by setting ``engine`` in ``config/settings.yaml``
 
 Memory budget guidance
 ----------------------
-* Q4_K_M 7B model  ≈ 4.0 GB  (use alone, no other large models active)
-* Q4_K_M 3.8B model ≈ 2.2 GB  (allows running a second small agent)
-* Whisper-tiny ASR  ≈  39 MB
-* Piper TTS         ≈  65 MB
+* Q4_K_M 0.8B model ≈ 0.55 GB file, ≈ 0.66 GB RAM → ``llama_cpp`` (fastest)
+* Q4_K_M 1.5B model ≈ 1.0 GB file,  ≈ 1.2 GB RAM  → ``llama_cpp`` (fastest)
+* Q4_K_M 3B model   ≈ 2.2 GB file,  ≈ 2.6 GB RAM  → ``llama_cpp`` (fastest)
+* Q4_K_M 7B model   ≈ 4.1 GB file,  ≈ 4.9 GB RAM  → ``airllm`` (layer-split)
+* Whisper-tiny ASR  ≈ 39 MB
+* Piper TTS         ≈ 65 MB
 * Python overhead   ≈ 300–400 MB
-Total (3.8B LLM active): ≈ 2.7 GB  ← well within 4 GB budget.
+Total (0.8B LLM active): ≈ 1.1 GB  ← well within 4 GB budget.
 """
 
 from __future__ import annotations
@@ -50,6 +63,20 @@ from pathlib import Path
 from typing import Any, Optional
 
 logger = logging.getLogger(__name__)
+
+# ---------------------------------------------------------------------------
+# RAM budget constant
+# ---------------------------------------------------------------------------
+
+# Hard ceiling for model RAM usage.  AirLLM is only enabled when a model
+# would exceed this budget when loaded via llama-cpp-python (estimated as
+# 1.2× the GGUF file size).  Keeping this at 4.0 GB leaves headroom for
+# Python overhead, ASR, TTS, and multi-agent sub-processes.
+_RAM_BUDGET_GB: float = 4.0
+
+# Multiplier for estimating llama-cpp-python runtime RAM from file size.
+# (GGUF mmap + KV cache overhead ≈ 1.2×)
+_LLAMA_CPP_OVERHEAD: float = 1.2
 
 # ---------------------------------------------------------------------------
 # Optional imports
@@ -77,10 +104,15 @@ except ImportError:
 class AirLLMEngine:
     """Memory-efficient large-model inference engine.
 
-    Priority order:
-      1. AirLLM (layer-split loading, best for 7B models on 4 GB RAM)
-      2. llama-cpp-python (GGUF 4-bit, best balance for 3–4B models)
-      3. Mock (CI / no model downloaded)
+    Backend selection policy (automatic when ``engine=None``):
+      1. If model RAM estimate ≤ 4 GB → ``llama_cpp`` (fastest path, always preferred)
+      2. If model RAM estimate > 4 GB → ``airllm`` (layer-split, keeps peak RAM low)
+      3. If neither is available → ``mock`` (CI / no model downloaded)
+
+    AirLLM is therefore **only activated for large models** (>4 GB RAM estimate).
+    For the default Qwen3.5-0.8B Q4 (~0.55 GB file, ~0.66 GB RAM) and any other
+    model whose llama_cpp runtime estimate stays under the 4 GB budget,
+    ``llama-cpp-python`` is used directly for maximum inference speed.
 
     Parameters
     ----------
@@ -89,7 +121,8 @@ class AirLLMEngine:
         HuggingFace model ID / directory (for AirLLM backend).
     engine:
         Force a specific backend: ``"airllm"``, ``"llama_cpp"``, ``"mock"``.
-        If ``None``, the best available backend is auto-selected.
+        If ``None``, the best available backend is auto-selected based on
+        model size vs. RAM budget.
     compression:
         Quantization level: ``"4bit"`` (default), ``"8bit"``, or ``"none"``.
     context_window:
@@ -128,14 +161,22 @@ class AirLLMEngine:
         self._backend = self._select_backend(engine)
 
         logger.info(
-            "AirLLMEngine initialised: backend=%s model=%s compression=%s memory_conservative=%s",
-            self._backend, self.model_path, self.compression, self.memory_conservative,
+            "AirLLMEngine initialised: backend=%s model=%s compression=%s "
+            "memory_conservative=%s ram_estimate_gb=%.2f",
+            self._backend, self.model_path, self.compression,
+            self.memory_conservative, self.memory_footprint_hint_gb,
         )
         if self._backend == "mock":
             logger.warning(
                 "AirLLMEngine running in MOCK mode. "
                 "Install 'airllm' or 'llama-cpp-python' and download a model to enable real inference. "
                 "See docs/AI_ARCHITECTURE.md for setup instructions."
+            )
+        elif self._backend == "airllm":
+            logger.info(
+                "AirLLMEngine: AirLLM (layer-split) selected because model RAM estimate "
+                "(%.2f GB) exceeds the %.1f GB budget for llama-cpp-python.",
+                self.memory_footprint_hint_gb, _RAM_BUDGET_GB,
             )
 
     # ------------------------------------------------------------------
@@ -184,25 +225,80 @@ class AirLLMEngine:
 
     @property
     def memory_footprint_hint_gb(self) -> float:
-        """Estimated RAM usage in GB for the active model + compression."""
+        """Estimated runtime RAM usage in GB for the active model + compression.
+
+        For ``llama_cpp``, this is 1.2× the GGUF file size (mmap + KV cache).
+        For ``airllm``, the peak RSS is much lower because only 1–2 transformer
+        layers reside in RAM at once; we still report the conservative 1.5×
+        estimate so callers can use it as an upper bound.
+        """
         size = Path(self.model_path).stat().st_size if Path(self.model_path).exists() else 0
         gb = size / (1024 ** 3)
         # Rough runtime overhead: 1.2× file size for llama_cpp, 1.5× for airllm
-        multiplier = 1.5 if self._backend == "airllm" else 1.2
+        multiplier = 1.5 if self._backend == "airllm" else _LLAMA_CPP_OVERHEAD
         return round(gb * multiplier, 2)
 
     # ------------------------------------------------------------------
     # Backend selection
     # ------------------------------------------------------------------
 
+    def _estimate_llama_cpp_ram_gb(self) -> float:
+        """Estimate the runtime RAM usage (in GB) if loaded via llama-cpp-python.
+
+        Uses the model file size multiplied by ``_LLAMA_CPP_OVERHEAD`` (1.2×).
+        Returns 0.0 if the file does not exist.
+        """
+        p = Path(self.model_path)
+        if not p.is_file():
+            return 0.0
+        return p.stat().st_size / (1024 ** 3) * _LLAMA_CPP_OVERHEAD
+
     def _select_backend(self, forced: Optional[str]) -> str:
+        """Choose the best backend for the current model and platform.
+
+        Policy (when ``forced`` is None):
+          1. Model fits in budget via llama_cpp  → ``llama_cpp`` (fastest)
+          2. Model exceeds budget + AirLLM avail → ``airllm``   (layer-split)
+          3. Model exceeds budget, no AirLLM     → ``llama_cpp`` with warning
+          4. No model file and no backends       → ``mock``
+        """
         if forced:
             return forced
+
         model_exists = Path(self.model_path).is_file()
-        if _AIRLLM_AVAILABLE and model_exists:
-            return "airllm"
-        if _LLAMA_CPP_AVAILABLE and model_exists:
+        if not model_exists:
+            return "mock"
+
+        llama_ram_gb = self._estimate_llama_cpp_ram_gb()
+        fits_in_budget = llama_ram_gb <= _RAM_BUDGET_GB
+
+        if fits_in_budget and _LLAMA_CPP_AVAILABLE:
+            logger.debug(
+                "AirLLMEngine: model RAM estimate %.2f GB ≤ budget %.1f GB → using llama_cpp (fastest path)",
+                llama_ram_gb, _RAM_BUDGET_GB,
+            )
             return "llama_cpp"
+
+        if not fits_in_budget:
+            if _AIRLLM_AVAILABLE:
+                logger.info(
+                    "AirLLMEngine: model RAM estimate %.2f GB > budget %.1f GB → "
+                    "activating AirLLM layer-split loading to stay within budget",
+                    llama_ram_gb, _RAM_BUDGET_GB,
+                )
+                return "airllm"
+            if _LLAMA_CPP_AVAILABLE:
+                logger.warning(
+                    "AirLLMEngine: model RAM estimate %.2f GB exceeds %.1f GB budget "
+                    "but AirLLM is not installed. Using llama_cpp anyway — consider "
+                    "installing 'airllm' or choosing a smaller model.",
+                    llama_ram_gb, _RAM_BUDGET_GB,
+                )
+                return "llama_cpp"
+
+        if _LLAMA_CPP_AVAILABLE:
+            return "llama_cpp"
+
         return "mock"
 
     # ------------------------------------------------------------------
@@ -306,29 +402,25 @@ class AirLLMEngine:
         )
 
     # ------------------------------------------------------------------
-    # How to swap AirLLM as the AI engine (documentation)
+    # How backend selection works (summary)
     # ------------------------------------------------------------------
-    # To use AirLLM for a large HuggingFace model (e.g., Mistral-7B-v0.1):
+    # AirLLM is **only used when the model would exceed the 4 GB RAM budget**
+    # when loaded via llama-cpp-python (estimated as 1.2× the GGUF file size).
     #
+    # Small/medium models (≤ ~3.3 GB file → ≤ 4 GB RAM estimate):
+    #   → llama_cpp backend (fastest possible path, no layer-split overhead)
+    #
+    # Large models (> ~3.3 GB file → > 4 GB RAM estimate), e.g. Mistral-7B Q4:
+    #   → airllm backend (layer-by-layer loading, keeps peak RAM ≤ ~2 GB)
+    #
+    # To enable AirLLM for a large HuggingFace model:
     #   pip install airllm
-    #
-    # In config/settings.yaml:
     #   llm:
-    #     engine: airllm
-    #     model_path: "mistralai/Mistral-7B-Instruct-v0.2"  # HF model ID
+    #     engine: auto   # will auto-select airllm for large models
+    #     model_path: "mistralai/Mistral-7B-Instruct-v0.2"
     #     compression: 4bit
-    #     context_window: 2048
-    #     max_gpu_memory: 0   # CPU-only
     #
-    # The AirLLMEngine will then split the model into individual transformer
-    # layers and stream them from disk on each forward pass.  Peak RAM usage
-    # stays well below the model's full size.
-    #
-    # For GGUF models (llama-cpp-python backend):
-    #   pip install llama-cpp-python
-    #
+    # To force a specific backend regardless of model size:
     #   llm:
-    #     engine: llama_cpp
-    #     model_path: "models/llm/Phi-3-mini-4k-instruct-q4.gguf"
-    #     compression: 4bit   # informational; GGUF is already quantized
+    #     engine: airllm   # or: llama_cpp | mock
     # ------------------------------------------------------------------

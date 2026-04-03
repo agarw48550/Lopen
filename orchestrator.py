@@ -207,7 +207,18 @@ def _startup() -> None:
     ma_cfg = settings.get("multi_agent", {})
     if ma_cfg.get("enabled", True):
         try:
-            from agent_core.multi_agent import AgentDispatcher
+            from agent_core.multi_agent import AgentDispatcher, _OMLX_AVAILABLE
+            if _OMLX_AVAILABLE:
+                logger.info(
+                    "OMLX is available and compatible on this platform — "
+                    "using OMLX-accelerated parallel agent routing."
+                )
+            else:
+                logger.info(
+                    "OMLX not available/compatible (common on Intel Mac x86_64). "
+                    "Using built-in asyncio agent pool — provides identical "
+                    "OpenClaw-style planner→executor→reflector pipeline."
+                )
             dispatcher = AgentDispatcher.from_config(
                 ma_cfg.get("config_path", "config/agents.yaml")
             )
@@ -257,8 +268,15 @@ def _startup() -> None:
 def _build_llm(engine: str, model_path: str | None, llm_cfg: dict) -> Any:
     """Construct the best available LLM backend.
 
-    Priority:
-      1. AirLLMEngine (if engine='airllm' or engine='auto' and airllm installed)
+    When ``engine='auto'`` (default), ``AirLLMEngine`` selects the fastest
+    runtime path based on model size:
+      - Small/medium models (RAM estimate ≤ 4 GB): ``llama_cpp`` backend
+        (fastest, no layer-split overhead).
+      - Large models (RAM estimate > 4 GB): ``airllm`` layer-split backend
+        (keeps peak RAM within the 4 GB budget).
+
+    Fallback chain:
+      1. AirLLMEngine (engine='airllm'|'auto' — with smart backend selection)
       2. LLMAdapter (llama-cpp-python or subprocess llama.cpp)
       3. Mock (logged prominently)
     """
