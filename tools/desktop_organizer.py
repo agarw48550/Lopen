@@ -24,6 +24,8 @@ _CATEGORY_MAP: dict[str, list[str]] = {
     "Archives": [".zip", ".tar", ".gz", ".rar", ".7z", ".bz2"],
     "Code": [".py", ".js", ".ts", ".html", ".css", ".java", ".c", ".cpp", ".rs", ".go", ".sh"],
     "Data": [".json", ".yaml", ".yml", ".xml", ".sql", ".db"],
+    # Catch-all for unrecognised extensions
+    "Misc": [],
 }
 
 

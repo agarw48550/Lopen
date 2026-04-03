@@ -84,9 +84,13 @@ class WhatsAppBridge:
             logger.debug("[MOCK] poll_messages -> []")
             return []
         if self._page is None:
-            logger.warning("WhatsApp page not initialised")
+            logger.warning("WhatsApp page not initialised; call connect() first")
             return []
-        # TODO: implement real DOM-based message polling
+        # TODO: implement real DOM-based message polling via Playwright selectors
+        logger.warning(
+            "poll_messages is not yet implemented (stub). "
+            "Real WhatsApp Web DOM scraping is required here."
+        )
         return []
 
     async def send_message(self, contact: str, text: str) -> bool:
@@ -95,9 +99,13 @@ class WhatsAppBridge:
             logger.info("[MOCK] Would send to %r: %r", contact, text)
             return True
         if self._page is None:
+            logger.warning("WhatsApp page not initialised; call connect() first")
             return False
-        # TODO: implement real Playwright message sending
-        logger.warning("send_message not fully implemented — MOCK path used")
+        # TODO: implement real Playwright message sending via WhatsApp Web UI
+        logger.warning(
+            "send_message is not yet implemented (stub). "
+            "Real Playwright automation for WhatsApp Web is required here."
+        )
         return False
 
     # ------------------------------------------------------------------

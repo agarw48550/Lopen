@@ -10,7 +10,7 @@ from pathlib import Path
 from typing import Any, AsyncGenerator
 
 import yaml
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.routing import APIRouter
 
@@ -291,9 +291,8 @@ async def status() -> dict[str, Any]:
 
 
 @router.post("/chat", tags=["Chat"])
-async def chat(request: Any) -> dict[str, str]:
-    from fastapi import Request
-    from fastapi.responses import JSONResponse
+async def chat(request: "Request") -> dict[str, str]:
+    from fastapi.responses import JSONResponse  # noqa: F401  kept for future use
 
     body = await request.json() if hasattr(request, "json") else {}
     query: str = body.get("query", "").strip()

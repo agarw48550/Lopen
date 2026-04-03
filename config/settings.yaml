@@ -38,7 +38,7 @@ web_dashboard:
 orchestrator:
   host: 0.0.0.0
   port: 8000
-  workers: 2  # conservative for 8GB RAM
+  workers: 1  # single worker to stay within 4 GB RAM target
 
 health:
   ram_threshold_gb: 4.0

@@ -15,15 +15,21 @@ mkdir -p "$MODELS_LLM" "$MODELS_ASR" "$MODELS_TTS"
 echo "==> Downloading Lopen models..."
 
 # ---- LLM: Phi-3-mini Q4 ----
-LLM_FILE="$MODELS_LLM/Phi-3-mini-4k-instruct-q4.gguf"
+LLM_SPECIFIC="$MODELS_LLM/Phi-3-mini-4k-instruct-q4.gguf"
+LLM_GENERIC="$MODELS_LLM/model.gguf"
 LLM_URL="https://huggingface.co/microsoft/Phi-3-mini-4k-instruct-gguf/resolve/main/Phi-3-mini-4k-instruct-q4.gguf"
-if [ ! -f "$LLM_FILE" ]; then
+if [ ! -f "$LLM_SPECIFIC" ]; then
     echo "--> Downloading Phi-3-mini Q4 (~2.2 GB)..."
-    wget -c --show-progress -O "$LLM_FILE" "$LLM_URL" || {
-        echo "    Download failed. Try manually: wget -O '$LLM_FILE' '$LLM_URL'"
+    wget -c --show-progress -O "$LLM_SPECIFIC" "$LLM_URL" || {
+        echo "    Download failed. Try manually: wget -O '$LLM_SPECIFIC' '$LLM_URL'"
     }
 else
-    echo "--> LLM model already present: $LLM_FILE"
+    echo "--> LLM model already present: $LLM_SPECIFIC"
+fi
+# Create generic symlink expected by config/settings.yaml
+if [ -f "$LLM_SPECIFIC" ] && [ ! -e "$LLM_GENERIC" ]; then
+    ln -s "$(basename "$LLM_SPECIFIC")" "$LLM_GENERIC"
+    echo "--> Symlink created: $LLM_GENERIC -> $(basename "$LLM_SPECIFIC")"
 fi
 
 # ---- ASR: whisper-tiny ----

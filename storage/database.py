@@ -63,7 +63,7 @@ class SQLiteDB:
 
                 CREATE TABLE IF NOT EXISTS memory (
                     session_id TEXT PRIMARY KEY,
-                    data JSON NOT NULL,
+                    data TEXT NOT NULL,
                     updated_at TEXT NOT NULL
                 );
 
