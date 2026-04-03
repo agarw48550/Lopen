@@ -24,6 +24,7 @@ obtained via **pip**, a direct binary download, or macOS built-in tools.
 git clone https://github.com/agarw48550/Lopen
 cd Lopen
 bash install.sh          # never calls brew
+bash install.sh --yes --no-models   # non-interactive quick path
 ```
 
 The installer detects available tools and guides you through anything missing.

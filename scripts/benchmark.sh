@@ -151,7 +151,8 @@ fi
 
 echo ""
 echo -e "${DIM}  Tips to improve speed:${RESET}"
-echo -e "${DIM}  • Use Phi-3-mini Q4_K_M (~2.2GB) for best speed/quality balance${RESET}"
+echo -e "${DIM}  • Use Qwen3.5-0.8B-Instruct Q4_K_M (~0.55GB) for fastest responses${RESET}"
+echo -e "${DIM}  • Use Qwen3.5-1.5B Q4_K_M (~1.0GB) for higher quality with low latency${RESET}"
 echo -e "${DIM}  • Set llm.memory_conservative: true in config/settings.yaml${RESET}"
 echo -e "${DIM}  • Close browser tabs and other heavy apps before benchmarking${RESET}"
 echo -e "${DIM}  • Run: bash scripts/diagnose.sh to check system health${RESET}"

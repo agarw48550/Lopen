@@ -68,13 +68,23 @@ else
 fi
 
 # Check key Python packages
-PACKAGES=("fastapi" "uvicorn" "pyyaml" "psutil" "httpx" "numpy")
-for pkg in "${PACKAGES[@]}"; do
-    if python3 -c "import ${pkg}" 2>/dev/null; then
-        VER=$(python3 -c "import importlib.metadata; print(importlib.metadata.version('${pkg}'))" 2>/dev/null || echo "?")
-        ok "${pkg}==${VER}"
+# Format: "import_name|distribution_name"
+PACKAGES=(
+    "fastapi|fastapi"
+    "uvicorn|uvicorn"
+    "yaml|PyYAML"
+    "psutil|psutil"
+    "httpx|httpx"
+    "numpy|numpy"
+)
+for spec in "${PACKAGES[@]}"; do
+    import_name="${spec%%|*}"
+    dist_name="${spec##*|}"
+    if python3 -c "import ${import_name}" 2>/dev/null; then
+        VER=$(python3 -c "import importlib.metadata; print(importlib.metadata.version('${dist_name}'))" 2>/dev/null || echo "?")
+        ok "${dist_name}==${VER}"
     else
-        warn "${pkg} not installed — run: pip install ${pkg}"
+        warn "${dist_name} not installed — run: pip install ${dist_name}"
     fi
 done
 echo ""
@@ -172,7 +182,7 @@ echo ""
 # 6. System Binaries
 # ---------------------------------------------------------------------------
 echo -e "${BOLD}  [6] System Binaries${RESET}"
-BINS=("brew" "git" "ffmpeg" "portaudio" "cmake")
+BINS=("git" "ffmpeg" "portaudio" "cmake")
 for bin in "${BINS[@]}"; do
     if command -v "$bin" &>/dev/null; then
         ok "${bin} found: $(which ${bin})"

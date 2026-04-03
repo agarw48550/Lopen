@@ -408,6 +408,8 @@ See [PLUGINS.md](PLUGINS.md) for the full plugin development guide.
 ```bash
 bash install.sh              # full install with model download prompt
 bash install.sh --no-models  # skip model downloads (install later)
+bash install.sh --yes --no-models  # fully non-interactive quick install
+bash install.sh --yes --with-llama # non-interactive + llama-cpp-python
 bash install.sh --debug      # verbose output
 ```
 
