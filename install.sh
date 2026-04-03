@@ -7,15 +7,20 @@
 #   bash install.sh --debug     # verbose output
 #
 # What this does:
-#   1. Verifies Homebrew is present (or guides you to install it)
-#   2. Installs system dependencies (cmake, ffmpeg, portaudio, python3)
+#   1. Checks OS, Python 3.9+, and system tools (NO Homebrew required)
+#   2. Checks/guides installation of optional system tools (cmake, ffmpeg,
+#      portaudio) using direct download links or macOS-native alternatives
 #   3. Creates a Python virtual environment in .venv/
-#   4. Installs all Python requirements
+#   4. Installs all Python requirements (pip only — no Homebrew)
 #   5. Copies .env.example → .env (if not exists)
 #   6. Creates required directories (logs/, models/, .pids/)
-#   7. Optionally downloads AI models (LLM, ASR, TTS)
+#   7. Optionally downloads AI models (Qwen2.5-0.5B + whisper-tiny + Piper TTS)
 #   8. Runs self-diagnostics to verify the installation
 #   9. Prints a quickstart guide
+#
+# Homebrew-free: This installer never requires or uses Homebrew.
+# All dependencies are fetched via pip, direct binary downloads, or are
+# already present on macOS 12+ / macOS 13+ (Ventura, Sonoma, Sequoia).
 
 set -euo pipefail
 
@@ -96,39 +101,76 @@ echo -e "    Python: ${PYTHON_VERSION}"
 if python3 -c "import sys; assert sys.version_info >= (3,9)" 2>/dev/null; then
     ok "Python version OK"
 else
-    die "Python 3.9+ required. Install: brew install python@3.11"
+    fail "Python 3.9+ required."
+    echo ""
+    echo -e "  ${YELLOW}Python 3.9 or newer is required. Install options (no Homebrew needed):${RESET}"
+    echo -e "  ${CYAN}  • Download installer: https://www.python.org/downloads/macos/${RESET}"
+    echo -e "  ${CYAN}  • Or install Xcode Command Line Tools (includes Python 3): xcode-select --install${RESET}"
+    echo ""
+    die "Please install Python 3.9+ and re-run this script."
 fi
 
 # ---------------------------------------------------------------------------
-# Step 2: Homebrew
+# Step 2: Check system tools (Homebrew-free)
 # ---------------------------------------------------------------------------
-step "Checking Homebrew"
-if command -v brew &>/dev/null; then
-    BREW_VER="$(brew --version | head -1)"
-    ok "${BREW_VER}"
+step "Checking system tools"
+
+# cmake — needed to compile llama-cpp-python
+# Available via: pip install cmake  (no Homebrew required)
+if command -v cmake &>/dev/null; then
+    ok "cmake found: $(cmake --version | head -1)"
 else
-    fail "Homebrew not found"
-    echo ""
-    echo -e "  ${YELLOW}Homebrew is required for system dependencies.${RESET}"
-    echo -e "  Install it with:"
-    echo -e "  ${CYAN}  /bin/bash -c \"\$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)\"${RESET}"
-    echo ""
-    die "Please install Homebrew and re-run this script."
+    warn "cmake not found — will install via pip (pip install cmake)"
+    info "cmake is only needed to compile llama-cpp-python from source"
 fi
 
+# git — standard on macOS (Xcode CLT) or available at git-scm.com
+if command -v git &>/dev/null; then
+    ok "git found: $(git --version)"
+else
+    warn "git not found"
+    info "Install Xcode Command Line Tools: xcode-select --install"
+fi
+
+# curl — built into macOS; used for model downloads
+if command -v curl &>/dev/null; then
+    ok "curl found"
+else
+    warn "curl not found — model downloads will try wget"
+fi
+
+# ffmpeg — optional; needed only for audio conversion in voice pipeline
+# Homebrew-free options:
+#   a) Pre-built static binary (recommended): https://evermeet.cx/ffmpeg/
+#      curl -L https://evermeet.cx/ffmpeg/ffmpeg-7.1.1.zip -o /tmp/ffmpeg.zip
+#      unzip /tmp/ffmpeg.zip -d /usr/local/bin && chmod +x /usr/local/bin/ffmpeg
+#   b) python-ffmpeg-binary pip package (Python wrapper with bundled ffmpeg)
+if command -v ffmpeg &>/dev/null; then
+    ok "ffmpeg found: $(ffmpeg -version 2>&1 | head -1 | cut -d' ' -f1-3)"
+else
+    warn "ffmpeg not found — voice pipeline will fall back to sounddevice/pyaudio"
+    info "Optional — to install WITHOUT Homebrew, download a static build:"
+    info "  curl -L https://evermeet.cx/ffmpeg/ffmpeg-7.1.1.zip -o /tmp/ffmpeg.zip"
+    info "  sudo unzip -o /tmp/ffmpeg.zip -d /usr/local/bin && sudo chmod +x /usr/local/bin/ffmpeg"
+fi
+
+# portaudio — needed for pyaudio microphone input
+# Homebrew-free options:
+#   a) Use sounddevice instead (pip install sounddevice — bundles PortAudio)
+#   b) macOS built-in CoreAudio (used by sounddevice automatically)
+# Note: sounddevice is already in requirements.txt as a portaudio-free alternative
+info "portaudio: using 'sounddevice' Python package (bundles PortAudio — no Homebrew needed)"
+
 # ---------------------------------------------------------------------------
-# Step 3: System dependencies
+# Step 3: System dependencies summary
 # ---------------------------------------------------------------------------
-step "Installing system dependencies (via Homebrew)"
-BREW_PKGS=("cmake" "ffmpeg" "portaudio" "git" "wget")
-for pkg in "${BREW_PKGS[@]}"; do
-    if brew list "$pkg" &>/dev/null; then
-        ok "${pkg} already installed"
-    else
-        echo -e "    Installing ${pkg}..."
-        brew install "$pkg" || warn "Failed to install ${pkg} — continuing"
-    fi
-done
+step "System dependency summary"
+info "Lopen uses pip-only Python packages wherever possible."
+info "The only optional native binaries are:"
+info "  • piper     (TTS) — pre-built GitHub release: https://github.com/rhasspy/piper/releases"
+info "  • whisper   (ASR) — pre-built from whisper.cpp: https://github.com/ggerganov/whisper.cpp/releases"
+info "  • ffmpeg    (audio) — optional; static build: https://evermeet.cx/ffmpeg/"
+info "See docs/INSTALL_NO_HOMEBREW.md for step-by-step manual install instructions."
 
 # ---------------------------------------------------------------------------
 # Step 4: Python virtual environment
@@ -160,18 +202,19 @@ ok "Core requirements installed"
 # Optional: llama-cpp-python (recommended for local LLM)
 echo ""
 echo -e "  ${YELLOW}Optional:${RESET} Install llama-cpp-python for local LLM inference?"
-echo -e "  ${DIM}  This enables Phi-3-mini and other GGUF models to run locally.${RESET}"
-echo -e "  ${DIM}  Takes ~2-5 minutes to compile.${RESET}"
+echo -e "  ${DIM}  This enables Qwen2.5-0.5B and other GGUF models to run locally.${RESET}"
+echo -e "  ${DIM}  Requires cmake (installed via pip if missing). Takes ~2-5 min.${RESET}"
 read -r -p "  Install llama-cpp-python? [y/N] " REPLY
 if [[ "${REPLY,,}" == "y" ]]; then
+    echo -e "  Ensuring cmake is available (pip install cmake)..."
+    pip install --quiet cmake || warn "cmake pip install failed — trying system cmake"
     echo -e "  Installing llama-cpp-python (CPU-only build)..."
-    # CMAKE_ARGS="-DGGML_METAL=OFF" disables GPU Metal acceleration.
-    # This is intentional for the 2017 Intel MacBook Pro target which has no
-    # compatible Metal GPU. If you have a newer Mac with Apple Silicon or a
-    # dedicated GPU, remove the CMAKE_ARGS override to enable acceleration.
-    CMAKE_ARGS="-DGGML_METAL=OFF" pip install --quiet "llama-cpp-python>=0.2.57" \
+    # CMAKE_ARGS="-DGGML_METAL=OFF" disables Metal GPU acceleration.
+    # Required for the 2017 Intel MacBook Pro (no compatible Metal GPU).
+    # On Apple Silicon Macs, omit CMAKE_ARGS for Metal acceleration.
+    CMAKE_ARGS="-DGGML_METAL=OFF" pip install --quiet "llama-cpp-python>=0.3.0" \
         && ok "llama-cpp-python installed" \
-        || warn "llama-cpp-python install failed — run manually: pip install llama-cpp-python"
+        || warn "llama-cpp-python install failed — run manually: CMAKE_ARGS='-DGGML_METAL=OFF' pip install llama-cpp-python"
 else
     info "Skipped llama-cpp-python — Lopen will use mock LLM responses until installed"
 fi
@@ -205,7 +248,7 @@ if [[ "$SKIP_MODELS" == "true" ]]; then
 else
     step "Downloading AI models"
     echo -e "  ${DIM}This will download:${RESET}"
-    echo -e "  ${DIM}  • Phi-3-mini Q4_K_M LLM       (~2.2 GB) — default local language model${RESET}"
+    echo -e "  ${DIM}  • Qwen2.5-0.5B-Instruct Q4_K_M (~360 MB) — ultra-fast primary LLM${RESET}"
     echo -e "  ${DIM}  • whisper-tiny ASR model       (~39 MB)  — speech recognition${RESET}"
     echo -e "  ${DIM}  • Piper TTS model (ryan-high)  (~65 MB)  — natural male voice${RESET}"
     echo ""

@@ -7,15 +7,25 @@ Usage
 
 Commands (inside the REPL)
 --------------------------
-    chat <message>   — Send a message to the Lopen agent
-    status           — Show service health and resource usage
-    plugins          — List loaded plugins / tools
-    history          — Show recent conversation turns
-    config           — Print active configuration summary
-    debug on|off     — Toggle verbose debug output
-    benchmark        — Run a quick inference speed test
-    help             — Show this help
-    quit / exit / q  — Exit the CLI
+    chat <message>       — Send a message to the agent and get a response
+    status               — Show service health, RAM, and running services
+    system               — Detailed system resource report (RAM/CPU/disk)
+    plugins              — List loaded plugins and tools
+    tools                — List all available tools with descriptions
+    history              — Show recent conversation turns
+    summary              — Summarise the current conversation
+    clear                — Clear conversation history
+    config               — Print active configuration summary
+    model [name]         — Show active LLM or switch to a named model
+    memory               — Show RAM usage and memory guard status
+    fetch <url>          — Fetch a URL and summarise its content
+    ingest <file>        — Ingest a local file into the agent's memory
+    logs [N]             — Tail the last N lines from the agent log (default 20)
+    restart              — Restart the orchestrator service
+    debug on|off         — Toggle verbose debug output
+    benchmark            — Run a quick inference speed test
+    help                 — Show this help
+    quit / exit / q      — Exit the CLI
 
 Easter eggs: try  `lopen sing`, `lopen joke`, `lopen haiku`, `lopen about`
 """
@@ -31,6 +41,7 @@ import sys
 import time
 import textwrap
 from datetime import datetime
+from pathlib import Path
 from typing import Optional
 
 try:
@@ -83,6 +94,7 @@ _TAGLINES = [
     "Think big. Run lean. Lopen is on it.",
     "From homework to hacking — your Mac's new best friend.",
     "All local. All private. All yours.",
+    "Powered by Qwen2.5 · <1s responses · Sub-500MB model footprint",
 ]
 
 _GREETINGS = [
@@ -214,20 +226,31 @@ def _cmd_help(_state: CLIState, _args: str) -> None:
     print(bold(cyan("  Lopen CLI — Available Commands")))
     print(dim("  ─" * 38))
     cmds = [
-        ("chat <message>",   "Send a message to the agent and get a response"),
-        ("status",           "Show service health, RAM usage, and running services"),
-        ("plugins",          "List loaded plugins and tools"),
-        ("history",          "Show the last 10 conversation turns"),
-        ("config",           "Print active configuration summary"),
-        ("debug on|off",     "Toggle verbose debug output (currently shows HTTP details)"),
-        ("benchmark",        "Run a quick inference speed test"),
-        ("help",             "Show this help message"),
-        ("quit / exit / q",  "Exit the Lopen CLI"),
+        ("chat <message>",       "Send a message to the agent and get a response"),
+        ("status",               "Show service health, RAM usage, and running services"),
+        ("system",               "Detailed system report (RAM/CPU/disk/processes)"),
+        ("plugins",              "List loaded plugins"),
+        ("tools",                "List all available tools with descriptions"),
+        ("history",              "Show the last 10 conversation turns"),
+        ("summary",              "Summarise the current conversation"),
+        ("clear",                "Clear conversation history"),
+        ("config",               "Print active configuration summary"),
+        ("model [name]",         "Show active LLM or switch to a named model"),
+        ("memory",               "Show RAM usage and memory guard status"),
+        ("fetch <url>",          "Fetch a URL and summarise its content"),
+        ("ingest <file>",        "Ingest a local file into the agent's memory"),
+        ("logs [N]",             "Tail the last N lines from the agent log (default 20)"),
+        ("restart",              "Restart the orchestrator service"),
+        ("debug on|off",         "Toggle verbose debug output"),
+        ("benchmark",            "Run a quick inference speed test"),
+        ("help",                 "Show this help message"),
+        ("quit / exit / q",      "Exit the Lopen CLI"),
     ]
     for cmd, desc in cmds:
-        print(f"  {cyan(cmd):<35} {dim(desc)}")
+        print(f"  {cyan(cmd):<38} {dim(desc)}")
     print()
-    print(dim("  Fun commands: lopen joke, lopen haiku, lopen sing, lopen about, lopen quote"))
+    print(dim("  Fun: lopen joke · lopen haiku · lopen sing · lopen about · lopen quote"))
+    print(dim("       lopen fortune · lopen coffee · lopen matrix"))
     print()
 
 
@@ -406,6 +429,362 @@ def _cmd_chat(state: CLIState, args: str) -> None:
 
 
 # ---------------------------------------------------------------------------
+# New CLI commands (April 2026 expansion)
+# ---------------------------------------------------------------------------
+
+def _cmd_system(state: CLIState, _args: str) -> None:
+    """Detailed system resource report."""
+    print()
+    print(bold("  System Resource Report"))
+    print(dim("  ─" * 38))
+    try:
+        import psutil  # type: ignore
+        # RAM
+        mem = psutil.virtual_memory()
+        swap = psutil.swap_memory()
+        ram_used = mem.used / 1024 ** 3
+        ram_total = mem.total / 1024 ** 3
+        pct = mem.percent
+        bar = "█" * int(pct / 5) + "░" * (20 - int(pct / 5))
+        color_fn = green if pct < 70 else (yellow if pct < 88 else red)
+        print(f"  RAM           {color_fn(bar)}  {ram_used:.2f}/{ram_total:.1f} GB ({pct:.0f}%)")
+        guard_status = green("✓ SAFE") if ram_used < 3.5 else red("⚠ NEAR LIMIT")
+        print(f"  RAM guard     {guard_status}  {dim('(limit: 3.5 GB active usage)')}")
+        print(f"  Swap used     {swap.used / 1024 ** 3:.2f} GB / {swap.total / 1024 ** 3:.1f} GB")
+        # CPU
+        cpu = psutil.cpu_percent(interval=1.0)
+        cpu_bar = "█" * int(cpu / 5) + "░" * (20 - int(cpu / 5))
+        cpu_fn = green if cpu < 60 else (yellow if cpu < 85 else red)
+        print(f"  CPU           {cpu_fn(cpu_bar)}  {cpu:.0f}%")
+        # Disk
+        disk = psutil.disk_usage("/")
+        disk_pct = disk.percent
+        disk_bar = "█" * int(disk_pct / 5) + "░" * (20 - int(disk_pct / 5))
+        disk_fn = green if disk_pct < 80 else (yellow if disk_pct < 92 else red)
+        print(f"  Disk (/)      {disk_fn(disk_bar)}  {disk.used / 1024**3:.1f}/{disk.total / 1024**3:.1f} GB ({disk_pct:.0f}%)")
+        # Top processes by memory
+        try:
+            procs = [(p.info["name"], p.info["memory_info"].rss / 1024 ** 2)
+                     for p in psutil.process_iter(["name", "memory_info"])
+                     if p.info.get("memory_info")]
+            procs.sort(key=lambda x: x[1], reverse=True)
+            print()
+            print(f"  {bold('Top memory consumers:')}")
+            for name, mb in procs[:5]:
+                bar_w = int(min(mb / 500 * 15, 15))
+                print(f"    {name[:22]:<22}  {dim('█' * bar_w + '░' * (15 - bar_w))}  {mb:.0f} MB")
+        except Exception:
+            pass
+    except ImportError:
+        print(red("  psutil not installed — run: pip install psutil"))
+    print()
+
+
+def _cmd_tools(state: CLIState, _args: str) -> None:
+    """List all available tools with descriptions."""
+    data = _get(state, "/tools")
+    print()
+    print(bold("  Available Tools"))
+    print(dim("  ─" * 38))
+    if data:
+        tools = data.get("tools", [])
+        for t in tools:
+            if isinstance(t, dict):
+                name = t.get("name", "?")
+                desc = t.get("description", "")
+                enabled = t.get("enabled", True)
+                icon = green("●") if enabled else dim("○")
+                print(f"  {icon} {cyan(name):<28} {dim(desc)}")
+            else:
+                print(f"  {cyan('▸')} {t}")
+    else:
+        # Fallback: show known tools from tools/ directory
+        known = [
+            ("researcher",        "Web search and research tasks"),
+            ("coder_assist",      "Code generation, review, and debugging"),
+            ("homework_tutor",    "Explain concepts, solve problems, teach"),
+            ("desktop_organizer", "Organise files and manage the desktop"),
+            ("browser_automation","Control the browser for web tasks"),
+            ("file_ops",          "Read, write, move, and manage files"),
+        ]
+        for name, desc in known:
+            print(f"  {green('●')} {cyan(name):<28} {dim(desc)}")
+    print()
+
+
+def _cmd_model(state: CLIState, args: str) -> None:
+    """Show or switch the active LLM."""
+    target = args.strip()
+    print()
+    if target:
+        # Request model switch
+        result = _post(state, "/model/switch", {"model": target})
+        if result:
+            new_model = result.get("active_model", target)
+            print(green(f"  ✔  Switched to model: {bold(new_model)}"))
+            if "note" in result:
+                print(dim(f"     {result['note']}"))
+        else:
+            print(yellow(f"  Could not switch model — orchestrator may not be running."))
+            print(dim("  Edit config/models.yaml → llm.active to change the default."))
+    else:
+        # Show current model info
+        data = _get(state, "/status")
+        if data:
+            model_name = data.get("llm_model", data.get("model", "unknown"))
+            engine = data.get("llm_engine", "unknown")
+            print(f"  Active model  {cyan(model_name)}")
+            print(f"  Engine        {dim(engine)}")
+        else:
+            print(dim("  Orchestrator offline — reading config/models.yaml directly..."))
+            _show_model_config()
+    print()
+
+
+def _show_model_config() -> None:
+    """Fallback: parse models.yaml directly when orchestrator is offline."""
+    try:
+        import yaml  # type: ignore
+        cfg_path = Path(__file__).parent / "config" / "models.yaml"
+        if cfg_path.exists():
+            cfg = yaml.safe_load(cfg_path.read_text())
+            active = cfg.get("models", {}).get("llm", {}).get("active", "?")
+            model = cfg.get("models", {}).get("llm", {}).get(active, {})
+            print(f"  Active model  {cyan(active)}")
+            print(f"  Name          {dim(model.get('name', '?'))}")
+            print(f"  Size          {dim(str(model.get('size_gb', '?')) + ' GB')}")
+            print(f"  Params        {dim(str(model.get('params_b', '?')) + 'B')}")
+            print(f"  Format        {dim(model.get('chat_format', 'chatml'))}")
+    except Exception:
+        pass
+
+
+def _cmd_memory(state: CLIState, _args: str) -> None:
+    """Show RAM usage and memory guard status."""
+    print()
+    print(bold("  Memory Status"))
+    print(dim("  ─" * 38))
+    try:
+        import psutil  # type: ignore
+        mem = psutil.virtual_memory()
+        used_gb = mem.used / 1024 ** 3
+        total_gb = mem.total / 1024 ** 3
+        avail_gb = mem.available / 1024 ** 3
+        pct = mem.percent
+        bar = "█" * int(pct / 5) + "░" * (20 - int(pct / 5))
+        color_fn = green if pct < 70 else (yellow if pct < 88 else red)
+        print(f"  Total RAM     {total_gb:.1f} GB")
+        print(f"  Used          {color_fn(bar)}  {used_gb:.2f} GB ({pct:.0f}%)")
+        print(f"  Available     {avail_gb:.2f} GB")
+        print()
+        # Memory guard thresholds
+        WARN_GB = 3.2
+        CRIT_GB = 3.6
+        if used_gb < WARN_GB:
+            print(f"  Guard status  {green('✓ SAFE')}  {dim(f'({used_gb:.2f} GB / {WARN_GB} GB warn threshold)')}")
+        elif used_gb < CRIT_GB:
+            print(f"  Guard status  {yellow('⚠ WARNING')}  {dim(f'({used_gb:.2f} GB — approaching {CRIT_GB} GB limit)')}")
+            print(yellow("  Recommendation: close browser tabs or restart a service"))
+        else:
+            print(f"  Guard status  {red('✖ CRITICAL')}  {dim(f'({used_gb:.2f} GB ≥ {CRIT_GB} GB limit)')}")
+            print(red("  Action needed: RAM over limit — run: bash scripts/health_check.sh"))
+        # Model sizes
+        print()
+        print(f"  {bold('Model RAM estimates:')}")
+        models_info = [
+            ("Qwen2.5-0.5B Q4_K_M  (default)", "~0.36 GB"),
+            ("Qwen2.5-1.5B Q4_K_M  (quality)",  "~1.0 GB"),
+            ("Phi-3-mini Q4_K_M    (legacy)",   "~2.2 GB"),
+            ("whisper-tiny (ASR)",               "~0.08 GB"),
+            ("Piper TTS",                        "~0.07 GB"),
+            ("Python / FastAPI overhead",        "~0.35 GB"),
+        ]
+        for name, size in models_info:
+            print(f"    {dim(name):<38} {cyan(size)}")
+    except ImportError:
+        print(red("  psutil not installed — run: pip install psutil"))
+    print()
+
+
+def _cmd_fetch(state: CLIState, args: str) -> None:
+    """Fetch a URL and summarise its content via the agent."""
+    url = args.strip()
+    if not url:
+        print(yellow("  Usage: fetch <url>"))
+        print(dim("  Example: fetch https://en.wikipedia.org/wiki/Quantum_computing"))
+        return
+    if not url.startswith(("http://", "https://")):
+        url = "https://" + url
+    print()
+    print(dim(f"  Fetching {url} …"))
+    start = time.perf_counter()
+    result = _post(
+        state,
+        "/chat",
+        {
+            "message": f"[TOOL:researcher] Fetch and summarise this URL: {url}",
+            "session_id": state.session_id,
+        },
+        timeout=60.0,
+    )
+    elapsed = time.perf_counter() - start
+    if result:
+        response = result.get("response", "(no response)")
+        wrapped = textwrap.fill(response, width=72, subsequent_indent="       ")
+        print(f"  {green('Lopen:')} {wrapped}")
+        if state.debug:
+            print(dim(f"         [time={elapsed:.2f}s]"))
+    print()
+
+
+def _cmd_ingest(state: CLIState, args: str) -> None:
+    """Ingest a local file into the agent's memory."""
+    filepath = args.strip()
+    if not filepath:
+        print(yellow("  Usage: ingest <file_path>"))
+        print(dim("  Example: ingest ~/Documents/notes.txt"))
+        return
+    expanded = os.path.expanduser(filepath)
+    if not os.path.isfile(expanded):
+        print(red(f"  File not found: {expanded}"))
+        return
+    size = os.path.getsize(expanded)
+    if size > 1024 * 1024:  # 1 MB guard
+        print(yellow(f"  File is large ({size // 1024} KB) — truncating to first 8000 chars"))
+    try:
+        with open(expanded, encoding="utf-8", errors="replace") as fh:
+            content = fh.read(8000)
+    except Exception as exc:
+        print(red(f"  Could not read file: {exc}"))
+        return
+    print()
+    print(dim(f"  Ingesting {os.path.basename(expanded)} ({size} bytes)…"))
+    result = _post(
+        state,
+        "/chat",
+        {
+            "message": (
+                f"[INGEST] I am sending you a file to remember.\n"
+                f"Filename: {os.path.basename(expanded)}\n"
+                f"Content:\n{content}\n\n"
+                "Please acknowledge you have ingested this and summarise it in 2–3 sentences."
+            ),
+            "session_id": state.session_id,
+        },
+        timeout=60.0,
+    )
+    if result:
+        response = result.get("response", "(no response)")
+        wrapped = textwrap.fill(response, width=72, subsequent_indent="       ")
+        print(f"  {green('Lopen:')} {wrapped}")
+    print()
+
+
+def _cmd_summary(state: CLIState, _args: str) -> None:
+    """Summarise the current conversation."""
+    print()
+    print(dim("  Generating conversation summary…"))
+    result = _post(
+        state,
+        "/chat",
+        {
+            "message": "Please summarise our conversation so far in 3–5 bullet points.",
+            "session_id": state.session_id,
+        },
+        timeout=30.0,
+    )
+    if result:
+        response = result.get("response", "(no response)")
+        wrapped = textwrap.fill(response, width=72, subsequent_indent="     ")
+        print(f"  {green('Summary:')} {wrapped}")
+    else:
+        # Fallback: show history from /memory endpoint
+        data = _get(state, "/memory")
+        if data:
+            turns = data.get("turns", [])
+            print(bold(f"  Conversation: {len(turns)} turns"))
+            if turns:
+                print(dim("  (last 5 messages:)"))
+                for t in turns[-5:]:
+                    role = t.get("role", "?")
+                    content = t.get("content", "")[:80]
+                    prefix = cyan("You:  ") if role == "user" else green("Lopen:")
+                    print(f"  {prefix} {dim(content)}…")
+    print()
+
+
+def _cmd_clear(state: CLIState, _args: str) -> None:
+    """Clear conversation history."""
+    result = _post(state, "/memory/clear", {"session_id": state.session_id})
+    if result:
+        print(green("  ✔  Conversation history cleared."))
+    else:
+        print(yellow("  Could not clear history via API."))
+        print(dim("  (Orchestrator may be offline — history will reset when restarted)"))
+
+
+def _cmd_logs(state: CLIState, args: str) -> None:  # noqa: ARG001
+    """Tail the last N lines from the agent log."""
+    try:
+        n = int(args.strip()) if args.strip().isdigit() else 20
+    except (ValueError, AttributeError):
+        n = 20
+    log_candidates = [
+        Path(__file__).parent / "logs" / "lopen.log",
+        Path(__file__).parent / "logs" / "orchestrator.log",
+        Path("/tmp") / "lopen.log",
+    ]
+    log_path = None
+    for p in log_candidates:
+        if p.exists():
+            log_path = p
+            break
+    print()
+    if log_path is None:
+        print(yellow(f"  No log file found. Checked: {[str(p) for p in log_candidates]}"))
+        print(dim("  Start the orchestrator first: bash scripts/start.sh"))
+    else:
+        print(bold(f"  Last {n} lines of {log_path.name}"))
+        print(dim("  ─" * 38))
+        try:
+            lines = log_path.read_text(errors="replace").splitlines()
+            for line in lines[-n:]:
+                # Colour-code log levels
+                if "ERROR" in line or "CRITICAL" in line:
+                    print(f"  {red(line)}")
+                elif "WARNING" in line or "WARN" in line:
+                    print(f"  {yellow(line)}")
+                elif "DEBUG" in line:
+                    print(f"  {dim(line)}")
+                else:
+                    print(f"  {line}")
+        except Exception as exc:
+            print(red(f"  Could not read log: {exc}"))
+    print()
+
+
+def _cmd_restart(state: CLIState, _args: str) -> None:
+    """Restart the orchestrator service."""
+    print()
+    print(yellow("  Restarting orchestrator…"))
+    result = _post(state, "/admin/restart", {})
+    if result:
+        status = result.get("status", "?")
+        print(green(f"  ✔  Restart acknowledged: {status}"))
+        print(dim("  Waiting for services to come back online…"))
+        time.sleep(2)
+        data = _get(state, "/health")
+        if data:
+            print(green("  ✔  Orchestrator is back online."))
+        else:
+            print(yellow("  ⚠  Orchestrator not yet reachable — try: bash scripts/start.sh"))
+    else:
+        print(yellow("  Could not reach orchestrator to request restart."))
+        print(dim("  Run manually: bash scripts/stop.sh && bash scripts/start.sh"))
+    print()
+
+
+# ---------------------------------------------------------------------------
 # Easter egg commands
 # ---------------------------------------------------------------------------
 
@@ -485,15 +864,18 @@ def _print_about() -> None:
     print(bold(cyan("  About Lopen")))
     print(dim("  ─" * 38))
     lines = [
-        ("Name",        "Lopen — Local Open Intelligence"),
-        ("Wake word",   "\"Lopen\""),
-        ("Architecture","Intent-driven, plugin-extensible, multi-agent"),
-        ("LLM",         "Phi-3-mini Q4_K_M (default) / Mistral-7B Q4 (AirLLM)"),
-        ("ASR",         "whisper.cpp tiny (local, offline)"),
-        ("TTS",         "Piper TTS — en_US-ryan-high (natural male voice)"),
-        ("Safety",      "NemoClaw-inspired guardrails + PII redaction"),
-        ("Memory",      "Target ≤4 GB RAM — designed for 2017 Intel MacBook Pro"),
-        ("Source",      "github.com/agarw48550/Lopen"),
+        ("Name",         "Lopen — Local Open Intelligence"),
+        ("Version",      "April 2026"),
+        ("Wake word",    "\"Lopen\""),
+        ("Architecture", "Intent-driven, plugin-extensible, multi-agent"),
+        ("LLM",          "Qwen2.5-0.5B-Instruct Q4_K_M (default, <1s responses)"),
+        ("LLM alt",      "Qwen2.5-1.5B Q4_K_M (quality) · Phi-3-mini (legacy)"),
+        ("ASR",          "whisper.cpp tiny (local, offline)"),
+        ("TTS",          "Piper TTS — en_US-ryan-high (natural male voice)"),
+        ("Safety",       "NemoClaw-inspired guardrails + PII redaction"),
+        ("Memory",       "Target ≤4 GB RAM — designed for 2017 Intel MacBook Pro"),
+        ("Install",      "No Homebrew required — pip + direct binaries only"),
+        ("Source",       "github.com/agarw48550/Lopen"),
     ]
     for k, v in lines:
         print(f"  {cyan(k):<16} {v}")
@@ -519,9 +901,19 @@ def _matrix_moment() -> None:
 _DISPATCH: dict[str, object] = {
     "help":      _cmd_help,
     "status":    _cmd_status,
+    "system":    _cmd_system,
     "plugins":   _cmd_plugins,
+    "tools":     _cmd_tools,
     "history":   _cmd_history,
+    "summary":   _cmd_summary,
+    "clear":     _cmd_clear,
     "config":    _cmd_config,
+    "model":     _cmd_model,
+    "memory":    _cmd_memory,
+    "fetch":     _cmd_fetch,
+    "ingest":    _cmd_ingest,
+    "logs":      _cmd_logs,
+    "restart":   _cmd_restart,
     "debug":     _cmd_debug,
     "benchmark": _cmd_benchmark,
     "chat":      _cmd_chat,
