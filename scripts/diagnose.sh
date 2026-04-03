@@ -55,7 +55,7 @@ if command -v python3 &>/dev/null; then
     PY_VER="$(python3 --version 2>&1)"
     ok "${PY_VER}"
 else
-    fail "python3 not found — install Python 3.11+ via Homebrew: brew install python@3.11"
+    fail "python3 not found — install Python 3.11+ from https://www.python.org/downloads/macos/ or run: xcode-select --install"
 fi
 
 # Check if venv is active

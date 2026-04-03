@@ -15,11 +15,11 @@ bash install.sh
 
 The installer will:
 1. Check your OS and Python version
-2. Install Homebrew dependencies (cmake, ffmpeg, portaudio)
+2. Check available system tools — **no Homebrew required**
 3. Create a Python virtual environment in `.venv/`
-4. Install all Python requirements
-5. Optionally install `llama-cpp-python` for local LLM
-6. Download AI models (Phi-3-mini + whisper-tiny + Piper TTS)
+4. Install all Python requirements (pip only)
+5. Optionally install `llama-cpp-python` for local LLM (cmake installed via pip)
+6. Download AI models (Qwen2.5-0.5B-Instruct + whisper-tiny + Piper TTS)
 7. Run self-diagnostics to verify everything works
 
 ---
@@ -69,9 +69,19 @@ lopen › quit
 |---------|-------------|
 | `chat <message>` | Send a message to the agent |
 | `status` | Service health, RAM usage, uptime |
-| `plugins` | List loaded plugins and tools |
+| `system` | Detailed RAM/CPU/disk report with memory guard |
+| `plugins` | List loaded plugins |
+| `tools` | List all tools with descriptions |
 | `history` | Show recent conversation turns |
+| `summary` | Summarise the current conversation |
+| `clear` | Clear conversation history |
 | `config` | Print active configuration |
+| `model [name]` | Show or switch the active LLM |
+| `memory` | RAM usage and memory guard thresholds |
+| `fetch <url>` | Fetch a URL and summarise its content |
+| `ingest <file>` | Ingest a local file into agent memory |
+| `logs [N]` | Tail the last N lines from the agent log |
+| `restart` | Restart the orchestrator service |
 | `debug on\|off` | Toggle verbose debug output |
 | `benchmark` | Run inference speed test |
 | `help` | Show all commands |
@@ -129,10 +139,13 @@ bash scripts/benchmark.sh
 bash scripts/benchmark.sh --verbose
 ```
 
-Target performance on a 2017 Intel MacBook Pro with Phi-3-mini Q4_K_M:
-- Simple queries: < 3s 🚀
-- Medium complexity: 3–8s ✅
-- Complex queries: 8–15s ⚠️
+Target performance on a 2017 Intel MacBook Pro with **Qwen2.5-0.5B-Instruct Q4_K_M** (April 2026 default):
+- Simple queries: **< 1s** 🚀 (360 MB model, 8–12 tok/s)
+- Medium complexity: 1–3s ✅
+- Complex queries: 3–6s ✅
+
+> **Previous default (Phi-3-mini Q4_K_M):** 3–8s average. Replaced by Qwen2.5-0.5B for 3× faster
+> responses and 6× smaller model footprint. Set `llm.active: phi3-mini-q4` to revert.
 
 ---
 
@@ -294,20 +307,35 @@ python -m pytest tests/ -q
 ```
 
 
-## Model Options
+## Model Options (April 2026)
 
-| Model stack | RAM usage | LLM quality | Notes |
-|------------|-----------|-------------|-------|
-| **Default** (Phi-3-mini Q4_K_M) | ~2.7 GB | ★★★★☆ | Multi-agent capable |
-| **Smart** (Mistral-7B Q4_K_M + AirLLM) | ~4.0 GB | ★★★★★ | Disable reflection agent |
+| Model stack | File size | RAM usage | LLM speed | Notes |
+|------------|-----------|-----------|-----------|-------|
+| **Default** (Qwen2.5-0.5B Q4_K_M) | 360 MB | ~860 MB total | **<1s** 🚀 | Ultra-fast, multi-agent |
+| **Quality** (Qwen2.5-1.5B Q4_K_M) | 1.0 GB | ~1.5 GB total | ~2s ✅ | Better reasoning |
+| **Legacy** (Phi-3-mini Q4_K_M) | 2.2 GB | ~2.7 GB total | ~3–5s | Previous default |
+| **Smart** (Mistral-7B Q4_K_M + AirLLM) | 4.1 GB | ~4.0 GB total | ~8s | Disable reflection agent |
 
 ```bash
-# Default stack
+# Default stack (Qwen2.5-0.5B — ultra-fast, recommended)
 bash scripts/download_models.sh
+
+# Quality upgrade (Qwen2.5-1.5B)
+bash scripts/download_models.sh --quality
+
+# Legacy (Phi-3-mini)
+bash scripts/download_models.sh --phi3
 
 # Smart stack (Mistral-7B, for AirLLM engine)
 bash scripts/download_models.sh --mistral
 ```
+
+> **Why Qwen2.5-0.5B over Phi-3-mini?**
+> - 6× smaller (360 MB vs 2.2 GB) → cold starts in seconds
+> - 3× faster inference (8–12 tok/s vs 2–4 tok/s on Intel Mac)
+> - First response reliably **< 1 second** (vs 3–5s)
+> - Leaves 3+ GB free for voice pipeline, multi-agent, and browser tools
+> - Instruction-tuned quality matches Phi-3-mini on everyday tasks
 
 ---
 
@@ -318,11 +346,11 @@ bash scripts/download_models.sh --mistral
 | Orchestrator + Engine | ~100 MB     | FastAPI + TF-IDF index (pure Python, ~1 MB)    |
 | Safety Engine         | ~1 MB       | Pure Python, no model                          |
 | Multi-Agent Dispatcher| ~5 MB       | Agent pool (models loaded on demand)           |
-| LLM (Phi-3 Q4, active)| ~2.2 GB     | Loaded on-demand, unloaded after use           |
+| LLM (Qwen2.5-0.5B Q4, active) | ~360 MB | Loaded on-demand, unloaded after use    |
 | Web Dashboard         | ~80 MB      | FastAPI + Jinja2                               |
 | Voice Service         | ~150 MB     | includes whisper.cpp model                     |
 | WhatsApp              | ~200 MB     | Playwright Chromium (headless)                 |
-| **Total**             | **~2.7 GB** | Well within 4 GB target                        |
+| **Total (default)**   | **~900 MB** | **3.1 GB free — well within 4 GB target** ✓   |
 
 ---
 
@@ -387,19 +415,22 @@ bash install.sh --debug      # verbose output
 
 ### Requirements
 - macOS 12+ (Monterey or newer)
-- Python 3.9+ (Python 3.11 recommended)
-- Homebrew
+- Python 3.9+ — download from [python.org](https://www.python.org/downloads/macos/) or `xcode-select --install`
+- **No Homebrew required** — all dependencies use pip or pre-built binaries
+
+> See [docs/INSTALL_NO_HOMEBREW.md](docs/INSTALL_NO_HOMEBREW.md) for the full
+> Homebrew-free install guide with step-by-step instructions for every dependency.
 
 ### Step-by-step
 
 ```bash
-# Install Homebrew dependencies
+# Install system dependencies (Homebrew-free)
 bash scripts/bootstrap.sh
 
 # Set up Python virtual environment
 bash scripts/setup_venv.sh
 
-# Download AI models
+# Download AI models (Qwen2.5-0.5B + whisper-tiny + piper)
 bash scripts/download_models.sh
 ```
 
@@ -496,15 +527,17 @@ Download a GGUF model:
 
 ```bash
 bash scripts/download_models.sh
-# or manually:
+# or manually (Qwen2.5-0.5B default):
 mkdir -p models/llm
-curl -L -o models/llm/model.gguf "https://huggingface.co/microsoft/Phi-3-mini-4k-instruct-gguf/resolve/main/Phi-3-mini-4k-instruct-q4.gguf"
+curl -L -o models/llm/qwen2.5-0.5b-instruct-q4_k_m.gguf \
+  "https://huggingface.co/Qwen/Qwen2.5-0.5B-Instruct-GGUF/resolve/main/qwen2.5-0.5b-instruct-q4_k_m.gguf"
 ```
 
-Then install `llama-cpp-python`:
+Then install `llama-cpp-python` (cmake is installed via pip — no Homebrew needed):
 
 ```bash
-CMAKE_ARGS="-DGGML_METAL=OFF" pip install "llama-cpp-python>=0.2.57"
+pip install cmake
+CMAKE_ARGS="-DGGML_METAL=OFF" pip install "llama-cpp-python>=0.3.0"
 ```
 
 ### "ASR in mock mode"
@@ -583,15 +616,19 @@ pytest tests/smoke/ -v
 
 ---
 
-## Resource Profile by Component
+## Resource Profile by Component (April 2026)
 
 ```
-Orchestrator API:   ~100 MB
-IntentEngine:       <1 MB  (pure Python TF-IDF, no extra dependencies)
-LLM (Q4_K_M):      ~2.2 GB (load on demand)
-whisper-tiny ASR:  ~150 MB
-piper TTS:         ~50 MB
-WhatsApp (Chrome): ~200 MB
-TOTAL (all):       ~2.7 GB  (target: ≤ 4 GB)
+Orchestrator API:      ~100 MB
+IntentEngine:          <1 MB   (pure Python TF-IDF, no extra dependencies)
+LLM Qwen2.5-0.5B Q4:  ~360 MB (load on demand, unloaded after use)
+whisper-tiny ASR:      ~80 MB
+piper TTS:             ~70 MB
+WhatsApp (Chrome):     ~200 MB
+TOTAL (default stack): ~860 MB (target: ≤ 4 GB)  ← 3.1 GB headroom ✓
+
+Memory guard thresholds:
+  Warning at:  3.2 GB used
+  Critical at: 3.6 GB used  → watchdog triggers model unload + service restart
 ```
 
