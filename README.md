@@ -258,13 +258,45 @@ Unlike assistants with hardcoded intent→tool mappings, Lopen uses **semantic r
 
 ### 1. AirLLM Engine (`llm/airllm_engine.py`)
 Efficient large-model inference inspired by [lyogavin/airllm](https://github.com/lyogavin/airllm).
-- Layer-by-layer CPU scheduling — loads only 1–2 transformer layers at a time
-- Supports 7B Q4_K_M models within 4 GB RAM (with AirLLM backend)
-- Auto-selects best backend: `airllm` → `llama_cpp` → `mock`
-- Configurable via `config/settings.yaml` (`llm.engine`)
+
+**Conditional activation (new in this session):**
+- AirLLM's layer-split loading is **only enabled when the model would exceed the 4 GB RAM budget** when loaded directly via `llama-cpp-python` (estimated as 1.2× the GGUF file size).
+- For smaller models — including the default Qwen3.5-0.8B Q4 (~0.55 GB file, ~0.66 GB RAM) — `llama-cpp-python` is used directly as the **fastest possible path** (no layer-split overhead).
+- For large models (e.g. Mistral-7B Q4 ~4.1 GB file, ~4.9 GB RAM estimate), the engine automatically activates AirLLM layer-by-layer loading to keep peak RAM well under 4 GB.
+- For very large models where even AirLLM cannot fit under budget, quantisation level is incrementally tightened or features (reflection agent, summariser) are disabled.
+
+Auto-selection logic:
+```
+model RAM estimate ≤ 4 GB  →  llama_cpp  (fastest path, always preferred)
+model RAM estimate > 4 GB  →  airllm     (layer-split, stays within budget)
+no backend / no model      →  mock       (CI / offline development)
+```
+
+Force a specific backend via `config/settings.yaml`:
+```yaml
+llm:
+  engine: auto      # auto | airllm | llama_cpp | mock
+```
 
 ### 2. Multi-Agent Dispatcher (`agent_core/multi_agent.py`)
 OMLX-inspired parallel agent orchestration ([jundot/omlx](https://github.com/jundot/omlx)).
+
+**OMLX Intel Mac compatibility (new in this session):**
+- At startup, Lopen probes whether the `omlx` package is installed and compatible on your platform.
+- On **Intel Mac (x86_64)**, OMLX may not be installable or may silently malfunction — Lopen detects this automatically.
+- When OMLX is unavailable or incompatible, Lopen falls back to its built-in **asyncio-based lightweight agent pool** which provides the identical OpenClaw-style pipeline (planner → executor → reflector) using `asyncio.gather` for concurrency.
+- The fallback is transparent — the same `AgentDispatcher` API is used regardless.
+
+Startup log messages:
+```
+# When OMLX is available:
+INFO  OMLX is available and compatible — using OMLX-accelerated parallel agent routing.
+
+# When OMLX is absent (Intel Mac, most setups):
+INFO  OMLX not available/compatible (common on Intel Mac x86_64).
+      Using built-in asyncio agent pool — provides identical OpenClaw-style pipeline.
+```
+
 - **Planner** decomposes queries → **Executor** generates answers → **Reflector** checks quality
 - LRU eviction ensures only active agents consume RAM
 - Configurable agent pool in `config/agents.yaml`
@@ -314,7 +346,7 @@ python -m pytest tests/ -q
 | **Default** (Qwen3.5-0.8B Q4_K_M) | 550 MB | ~1.05 GB total | **<1s** 🚀 | Ultra-fast, multi-agent |
 | **Quality** (Qwen3.5-1.5B Q4_K_M) | 1.0 GB | ~1.5 GB total | ~2s ✅ | Better reasoning |
 | **Legacy** (Phi-3-mini Q4_K_M) | 2.2 GB | ~2.7 GB total | ~3–5s | Previous default |
-| **Smart** (Mistral-7B Q4_K_M + AirLLM) | 4.1 GB | ~4.0 GB total | ~8s | Disable reflection agent |
+| **Smart** (Mistral-7B Q4_K_M, AirLLM auto) | 4.1 GB | ~4.0 GB total | ~8s | AirLLM auto-activated (>4 GB RAM estimate); disable reflection agent |
 
 ```bash
 # Default stack (Qwen3.5-0.8B — ultra-fast, recommended)
@@ -630,4 +662,44 @@ TOTAL (default stack): ~1.05 GB (target: ≤ 4 GB)  ← 2.9 GB headroom ✓
 Memory guard thresholds:
   Warning at:  3.2 GB used
   Critical at: 3.6 GB used  → watchdog triggers model unload + service restart
+```
+
+---
+
+## Session Notes — April 2026
+
+### AirLLM conditional activation
+Previously, `AirLLMEngine` always preferred the AirLLM layer-split backend
+whenever the `airllm` package was installed, even for tiny models.  This added
+unnecessary overhead (layer-split I/O) for small models like Qwen3.5-0.8B that
+fit comfortably in RAM.
+
+**As of this session**, AirLLM is only activated when a model's estimated RAM
+usage (1.2× the GGUF file size) **exceeds the 4 GB budget**:
+
+- `≤ 4 GB estimate` → `llama_cpp` (fastest path, no layer-split overhead)
+- `> 4 GB estimate` → `airllm` (layer-by-layer loading, keeps peak RAM ≤ ~2 GB)
+- Can be overridden with `llm.engine: airllm|llama_cpp|mock` in `config/settings.yaml`
+
+This change delivers faster inference for all default models and only incurs the
+AirLLM overhead when strictly necessary.
+
+### OMLX multi-agent — Intel Mac fallback
+OMLX (`pip install omlx`) provides native parallel multi-LLM routing but is not
+always compatible with Intel Mac (x86_64 darwin).
+
+**As of this session**, Lopen auto-detects OMLX compatibility at startup:
+
+1. If OMLX imports successfully and passes a platform probe → OMLX-accelerated
+   routing is used.
+2. If OMLX is absent or fails the probe (typical for Intel Mac) → Lopen uses its
+   built-in **asyncio lightweight agent pool** which provides the same
+   OpenClaw-style `planner → executor → reflector` pipeline with zero extra
+   dependencies.
+
+In both cases the `AgentDispatcher` API is identical.  Check the startup log
+for which path was selected:
+```
+INFO  OMLX not available/compatible (common on Intel Mac x86_64).
+      Using built-in asyncio agent pool…
 ```

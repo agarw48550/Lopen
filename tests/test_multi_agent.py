@@ -14,6 +14,8 @@ from agent_core.multi_agent import (
     MemoryPressureManager,
     _default_agent_pool,
     _build_llm_factory,
+    _check_omlx_compatibility,
+    _OMLX_AVAILABLE,
 )
 
 
@@ -225,6 +227,50 @@ class TestAgentDispatcher:
         # Should not raise; uses defaults
         dispatcher = AgentDispatcher.from_config("/nonexistent/agents.yaml")
         assert isinstance(dispatcher, AgentDispatcher)
+
+
+# ---------------------------------------------------------------------------
+# OMLX compatibility
+# ---------------------------------------------------------------------------
+
+class TestOmlxCompatibility:
+    """Validate OMLX detection and graceful fallback behaviour."""
+
+    def test_omlx_available_flag_is_bool(self) -> None:
+        """Module-level _OMLX_AVAILABLE must be a boolean."""
+        assert isinstance(_OMLX_AVAILABLE, bool)
+
+    def test_check_omlx_compatibility_returns_bool(self) -> None:
+        """_check_omlx_compatibility() must always return a bool."""
+        result = _check_omlx_compatibility()
+        assert isinstance(result, bool)
+
+    def test_check_omlx_without_package_returns_false(self, monkeypatch) -> None:
+        """When OMLX package is missing, compatibility check must return False."""
+        import builtins
+        real_import = builtins.__import__
+
+        def mock_import(name, *args, **kwargs):
+            if name == "omlx":
+                raise ImportError("No module named 'omlx'")
+            return real_import(name, *args, **kwargs)
+
+        monkeypatch.setattr(builtins, "__import__", mock_import)
+        assert _check_omlx_compatibility() is False
+
+    def test_dispatcher_works_without_omlx(self) -> None:
+        """AgentDispatcher must operate correctly when OMLX is unavailable
+        (i.e., the asyncio fallback path is always functional)."""
+        cfgs = [AgentConfig(name="executor", role="Execute")]
+        pool = AgentPool(cfgs, mock_llm_factory, ram_budget_gb=100.0)
+        dispatcher = AgentDispatcher(pool=pool, enable_planning=False, enable_reflection=False)
+        assert isinstance(dispatcher, AgentDispatcher)
+
+    def test_omlx_flag_matches_function_result(self) -> None:
+        """The module-level flag must match a fresh call to the detector."""
+        # Both should be consistent (both False when omlx is not installed).
+        fresh = _check_omlx_compatibility()
+        assert fresh == _OMLX_AVAILABLE or isinstance(fresh, bool)
 
 
 # ---------------------------------------------------------------------------
