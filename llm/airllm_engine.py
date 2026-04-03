@@ -78,6 +78,11 @@ _RAM_BUDGET_GB: float = 4.0
 # (GGUF mmap + KV cache overhead ≈ 1.2×)
 _LLAMA_CPP_OVERHEAD: float = 1.2
 
+# Multiplier for estimating AirLLM conservative RAM upper bound from file size.
+# (Actual peak RSS is much lower due to layer-by-layer loading, but we report
+#  1.5× as a worst-case bound for callers of memory_footprint_hint_gb.)
+_AIRLLM_OVERHEAD: float = 1.5
+
 # ---------------------------------------------------------------------------
 # Optional imports
 # ---------------------------------------------------------------------------
@@ -235,7 +240,7 @@ class AirLLMEngine:
         size = Path(self.model_path).stat().st_size if Path(self.model_path).exists() else 0
         gb = size / (1024 ** 3)
         # Rough runtime overhead: 1.2× file size for llama_cpp, 1.5× for airllm
-        multiplier = 1.5 if self._backend == "airllm" else _LLAMA_CPP_OVERHEAD
+        multiplier = _AIRLLM_OVERHEAD if self._backend == "airllm" else _LLAMA_CPP_OVERHEAD
         return round(gb * multiplier, 2)
 
     # ------------------------------------------------------------------

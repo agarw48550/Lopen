@@ -268,9 +268,8 @@ class TestOmlxCompatibility:
 
     def test_omlx_flag_matches_function_result(self) -> None:
         """The module-level flag must match a fresh call to the detector."""
-        # Both should be consistent (both False when omlx is not installed).
         fresh = _check_omlx_compatibility()
-        assert fresh == _OMLX_AVAILABLE or isinstance(fresh, bool)
+        assert fresh == _OMLX_AVAILABLE
 
 
 # ---------------------------------------------------------------------------
