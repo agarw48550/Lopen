@@ -217,7 +217,7 @@ if [[ "$INSTALL_LLAMA" == "ask" ]]; then
         info "--yes set: skipping llama-cpp-python by default (use --with-llama to enable)"
     else
         read -r -p "  Install llama-cpp-python? [y/N] " REPLY
-        if [[ "${REPLY,,}" == "y" ]]; then
+        if [[ "$(echo "$REPLY" | tr '[:upper:]' '[:lower:]')" == "y" ]]; then
             INSTALL_LLAMA="yes"
         else
             INSTALL_LLAMA="no"
@@ -277,7 +277,7 @@ else
     else
         read -r -p "  Download models now? [Y/n] " REPLY
     fi
-    if [[ "${REPLY,,}" != "n" ]]; then
+    if [[ "$(echo "$REPLY" | tr '[:upper:]' '[:lower:]')" != "n" ]]; then
         bash scripts/download_models.sh \
             && ok "Models downloaded successfully" \
             || warn "Some models failed to download — run: bash scripts/download_models.sh"
