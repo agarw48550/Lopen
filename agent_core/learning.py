@@ -103,7 +103,7 @@ class AgentLearner:
             The rowid of the inserted record.
         """
         topic = _extract_topic(user_input)
-        now = datetime.now(timezone.utc).replace(tzinfo=None).isoformat()
+        now = datetime.now(timezone.utc).isoformat()
         with self._connect() as conn:
             cursor = conn.execute(
                 "INSERT INTO interactions (timestamp, user_input, response, rating, interface, topic) "
@@ -130,7 +130,7 @@ class AgentLearner:
             List of dicts with keys ``id``, ``timestamp``, ``user_input``,
             ``response``, ``rating``, ``interface``, ``topic``.
         """
-        since = (datetime.now(timezone.utc).replace(tzinfo=None) - timedelta(days=days)).isoformat()
+        since = (datetime.now(timezone.utc) - timedelta(days=days)).isoformat()
         with self._connect() as conn:
             rows = conn.execute(
                 "SELECT * FROM interactions "
@@ -158,7 +158,7 @@ class AgentLearner:
             topic_inputs.setdefault(topic, []).append(row["user_input"])
 
         new_count = 0
-        now = datetime.now(timezone.utc).replace(tzinfo=None).isoformat()
+        now = datetime.now(timezone.utc).isoformat()
         with self._connect() as conn:
             for topic, inputs in topic_inputs.items():
                 # Derive a simple pattern from common words

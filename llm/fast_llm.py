@@ -235,12 +235,14 @@ def _heuristic_complexity(query: str) -> int:
         else:
             if _re.search(r"\b" + _re.escape(kw) + r"\b", lower):
                 high_hits += 1
-    if high_hits >= 3:
+    if high_hits >= 4:
+        return 9
+    if high_hits == 3:
         return 8
     if high_hits == 2:
-        return 6
+        return 7
     if high_hits == 1:
-        return 4
+        return 5
     # Length-based fallback
     word_count = len(query.split())
     if word_count > 30:
