@@ -104,7 +104,12 @@ fi
 # 5. Disk usage report
 # ---------------------------------------------------------------------------
 log "[5/6] Disk usage check..."
-FREE_GB=$(df -g / 2>/dev/null | awk 'NR==2 {print $4}' || echo "?")
+# df -g is macOS-specific; Linux uses --block-size=1G
+if [[ "$(uname -s)" = "Darwin" ]]; then
+    FREE_GB=$(df -g / 2>/dev/null | awk 'NR==2 {print $4}' || echo "?")
+else
+    FREE_GB=$(df --block-size=1G / 2>/dev/null | awk 'NR==2 {print $4}' || echo "?")
+fi
 REPO_SIZE=$(du -sh "$REPO_ROOT" 2>/dev/null | awk '{print $1}' || echo "?")
 MODELS_SIZE=$(du -sh "$REPO_ROOT/models" 2>/dev/null | awk '{print $1}' || echo "?")
 LOGS_SIZE=$(du -sh "$LOG_DIR" 2>/dev/null | awk '{print $1}' || echo "?")

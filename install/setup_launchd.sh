@@ -61,7 +61,7 @@ install_plist() {
     sed \
         -e "s|/Users/REPLACE_WITH_YOUR_USERNAME/Lopen/.venv/bin/python3|$VENV_PYTHON|g" \
         -e "s|/Users/REPLACE_WITH_YOUR_USERNAME/Lopen|$REPO_ROOT|g" \
-        -e "s|/Users/REPLACE_WITH_YOUR_USERNAME|$HOME|g" \
+        -e "s|/Users/REPLACE_WITH_YOUR_USERNAME/Library|$HOME/Library|g" \
         "$src" > "$dst"
 
     ok "Installed $dst"

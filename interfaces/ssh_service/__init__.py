@@ -16,7 +16,6 @@ optional FastAPI path for richer routing when FastAPI is available.
 from __future__ import annotations
 
 import asyncio
-import hashlib
 import hmac
 import json
 import logging
@@ -42,13 +41,10 @@ except ImportError:
 # ---------------------------------------------------------------------------
 
 def _verify_api_key(provided: str, expected: str) -> bool:
-    """Constant-time comparison to prevent timing attacks."""
+    """Constant-time comparison to prevent timing attacks on API key validation."""
     if not expected:
         return False
-    return hmac.compare_digest(
-        hashlib.sha256(provided.encode()).digest(),
-        hashlib.sha256(expected.encode()).digest(),
-    )
+    return hmac.compare_digest(provided.encode(), expected.encode())
 
 
 # ---------------------------------------------------------------------------

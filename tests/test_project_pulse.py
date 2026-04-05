@@ -16,13 +16,20 @@ from tools.project_pulse import (
 )
 
 
+def _temp_db() -> str:
+    """Return a path for a temporary SQLite database (deleted when process exits)."""
+    f = tempfile.NamedTemporaryFile(suffix=".db", delete=False)
+    f.close()
+    return f.name
+
+
 # ---------------------------------------------------------------------------
 # _PulseDB direct tests
 # ---------------------------------------------------------------------------
 
 class TestPulseDB:
     def _make_db(self) -> _PulseDB:
-        return _PulseDB(tempfile.mktemp(suffix=".db"))
+        return _PulseDB(_temp_db())
 
     def test_add_and_get_task(self) -> None:
         db = self._make_db()
@@ -84,7 +91,7 @@ class TestPulseDB:
 
 class TestProjectPulse:
     def _make_pulse(self) -> ProjectPulse:
-        return ProjectPulse(db_path=tempfile.mktemp(suffix=".db"))
+        return ProjectPulse(db_path=_temp_db())
 
     def test_add_task_returns_task_with_id(self) -> None:
         pulse = self._make_pulse()
