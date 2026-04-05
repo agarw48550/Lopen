@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import logging
 import random
+import re
 from pathlib import Path
 from typing import Any, Optional
 
@@ -205,27 +206,33 @@ class FastLLM:
 # Complexity heuristic (used in mock mode and by IntentEngine)
 # ---------------------------------------------------------------------------
 
-_HIGH_COMPLEXITY_KEYWORDS: frozenset[str] = frozenset({
-    "multi-step", "step by step", "step-by-step", "explain", "research",
-    "implement", "design", "architecture", "analyse", "analyze", "debug",
-    "code", "script", "algorithm", "compare", "evaluate", "review",
-    "translate", "prove", "theorem", "calculate", "derive",
-    "write a", "build a", "create a", "generate a", "help me understand",
-    "why does", "how does",
-})
-
-_LOW_COMPLEXITY_KEYWORDS: frozenset[str] = frozenset({
-    "hello", "hi", "hey", "thanks", "thank you", "bye", "goodbye",
-    "status", "ping", "ok", "yes", "no", "sure",
-})
+# Import shared keyword sets from intent_engine to avoid duplication.
+# Use a try/except to handle potential circular-import edge cases at startup.
+try:
+    from agent_core.intent_engine import (  # type: ignore
+        _COMPLEX_QUERY_KEYWORDS as _HIGH_COMPLEXITY_KEYWORDS,
+        _SIMPLE_QUERY_KEYWORDS as _LOW_COMPLEXITY_KEYWORDS,
+    )
+except ImportError:
+    _HIGH_COMPLEXITY_KEYWORDS: frozenset[str] = frozenset({
+        "multi-step", "step by step", "step-by-step", "explain", "research",
+        "implement", "design", "architecture", "analyse", "analyze", "debug",
+        "code", "script", "algorithm", "compare", "evaluate", "review",
+        "translate", "prove", "theorem", "calculate", "derive",
+        "write a", "build a", "create a", "generate a", "help me understand",
+        "why does", "how does",
+    })
+    _LOW_COMPLEXITY_KEYWORDS: frozenset[str] = frozenset({
+        "hello", "hi", "hey", "thanks", "thank you", "bye", "goodbye",
+        "status", "ping", "ok", "yes", "no", "sure",
+    })
 
 
 def _heuristic_complexity(query: str) -> int:
     """Estimate query complexity via keyword heuristics (0-10)."""
-    import re as _re
     lower = query.lower()
     for kw in _LOW_COMPLEXITY_KEYWORDS:
-        if _re.search(r"\b" + _re.escape(kw) + r"\b", lower):
+        if re.search(r"\b" + re.escape(kw) + r"\b", lower):
             return 1
     high_hits = 0
     for kw in _HIGH_COMPLEXITY_KEYWORDS:
@@ -233,7 +240,7 @@ def _heuristic_complexity(query: str) -> int:
             if kw in lower:
                 high_hits += 1
         else:
-            if _re.search(r"\b" + _re.escape(kw) + r"\b", lower):
+            if re.search(r"\b" + re.escape(kw) + r"\b", lower):
                 high_hits += 1
     if high_hits >= 4:
         return 9

@@ -247,14 +247,13 @@ class IntentEngine:
         Returns:
             Integer in the range [0, 10].
         """
-        import re as _re
         lower = query.lower()
 
         # Greetings and status checks → very low complexity
         # Use word-boundary matching to avoid false positives on substrings
         for kw in _SIMPLE_QUERY_KEYWORDS:
-            pattern = r"\b" + _re.escape(kw) + r"\b"
-            if _re.search(pattern, lower):
+            pattern = r"\b" + re.escape(kw) + r"\b"
+            if re.search(pattern, lower):
                 return 1
 
         # Count high-complexity indicator keywords (phrase or word-boundary)
@@ -264,7 +263,7 @@ class IntentEngine:
                 if kw in lower:
                     high_hits += 1
             else:
-                if _re.search(r"\b" + _re.escape(kw) + r"\b", lower):
+                if re.search(r"\b" + re.escape(kw) + r"\b", lower):
                     high_hits += 1
 
         if high_hits >= 4:
