@@ -779,6 +779,86 @@ async def get_agents_status() -> dict[str, Any]:
     return {"enabled": True, **dispatcher.pool_status()}
 
 
+@router.get("/metrics", tags=["Metrics"])
+async def get_metrics() -> dict[str, Any]:
+    """Return system metrics: RAM, CPU, model state, queue depth, latency.
+
+    Designed for the SSH CLI, monitoring scripts, and the web dashboard.
+    All values degrade gracefully when psutil is not available.
+    """
+    import os as _os
+
+    # --- RAM / CPU via psutil ---
+    ram_info: dict[str, Any] = {}
+    cpu_info: dict[str, Any] = {}
+    try:
+        import psutil as _psutil
+        vm = _psutil.virtual_memory()
+        ram_info = {
+            "used_gb": round(vm.used / 1e9, 2),
+            "total_gb": round(vm.total / 1e9, 2),
+            "percent": vm.percent,
+            "available_gb": round(vm.available / 1e9, 2),
+        }
+        cpu_info = {
+            "percent": _psutil.cpu_percent(interval=None),
+            "count": _psutil.cpu_count(),
+        }
+    except Exception:
+        ram_info = {"error": "psutil not available"}
+        cpu_info = {"error": "psutil not available"}
+
+    # --- LLM model state ---
+    llm = _state.get("llm")
+    llm_loaded = False
+    llm_backend = "unknown"
+    if llm is not None:
+        llm_loaded = getattr(llm, "_model_loaded", False) or getattr(llm, "_loaded", False)
+        llm_backend = getattr(llm, "backend", None) or getattr(llm, "mode", "unknown")
+
+    # --- Task queue depth ---
+    task_queue = _state.get("task_queue")
+    queue_depth = 0
+    if task_queue is not None:
+        try:
+            from agent_core.task_queue import TaskStatus as _TQ
+            queue_depth = sum(
+                1 for t in task_queue.list_tasks()
+                if t.status == _TQ.PENDING
+            )
+        except Exception:
+            pass
+
+    # --- Analytics latency percentiles ---
+    analytics = _state.get("analytics")
+    latency_stats: dict[str, Any] = {}
+    if analytics is not None:
+        try:
+            stats = analytics.get_stats()
+            latency_stats = {
+                "p50_ms": stats.get("avg_latency_ms"),
+                "total_queries": stats.get("total_events", 0),
+            }
+        except Exception:
+            pass
+
+    uptime = time.time() - _start_time if _start_time else 0.0
+
+    return {
+        "service": "orchestrator",
+        "uptime_seconds": round(uptime, 1),
+        "ram": ram_info,
+        "cpu": cpu_info,
+        "llm": {
+            "backend": llm_backend,
+            "loaded": llm_loaded,
+        },
+        "queue_depth": queue_depth,
+        "latency": latency_stats,
+        "ts": time.time(),
+    }
+
+
 app.include_router(router)
 
 # ---------------------------------------------------------------------------

@@ -30,3 +30,11 @@ pytest-asyncio>=0.23.0
 # sentence-transformers: semantic embedding for vector memory / RAG
 # Install with: pip install sentence-transformers
 # sentence-transformers>=2.6.0
+
+# ---------------------------------------------------------------------------
+# Optional integrations
+# ---------------------------------------------------------------------------
+
+# notion-client: Notion API bridge for student workflow (assignments, notes, calendar)
+# Install with: pip install notion-client
+# notion-client>=2.2.1
