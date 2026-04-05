@@ -18,14 +18,20 @@ from tools.notion_integration import (
 )
 
 
+def _temp_db() -> str:
+    """Return a path for a temporary SQLite database (deleted when process exits)."""
+    f = tempfile.NamedTemporaryFile(suffix=".db", delete=False)
+    f.close()
+    return f.name
+
+
 # ---------------------------------------------------------------------------
 # _NotionCache tests
 # ---------------------------------------------------------------------------
 
 class TestNotionCache:
     def _make_cache(self) -> _NotionCache:
-        tmp = tempfile.mktemp(suffix=".db")
-        return _NotionCache(tmp)
+        return _NotionCache(_temp_db())
 
     def test_upsert_and_get_assignments(self) -> None:
         cache = self._make_cache()
@@ -116,9 +122,10 @@ class TestAssignment:
 
 class TestNotionIntegrationMock:
     def _make_integration(self) -> NotionIntegration:
-        tmp = tempfile.mktemp(suffix=".db")
+        f = tempfile.NamedTemporaryFile(suffix=".db", delete=False)
+        f.close()
         # No token → mock mode
-        return NotionIntegration(token="", cache_db_path=tmp)
+        return NotionIntegration(token="", cache_db_path=f.name)
 
     @pytest.mark.asyncio
     async def test_get_assignments_returns_empty_in_mock(self) -> None:

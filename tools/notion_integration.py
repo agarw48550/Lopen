@@ -43,7 +43,10 @@ except ImportError:
     pass
 
 _CACHE_TTL_SECONDS = 3600  # 1 hour
-_BATCH_SIZE = 50            # pages per Notion API request
+_VALID_CACHE_TABLES = frozenset({"assignments", "notes"})
+
+
+
 
 
 # ---------------------------------------------------------------------------
@@ -152,8 +155,11 @@ class _NotionCache:
         return result
 
     def cache_age_seconds(self, table: str) -> float:
+        if table not in _VALID_CACHE_TABLES:
+            raise ValueError(f"Invalid cache table: {table!r}")
+        # table is validated against a frozenset allowlist — safe to interpolate
         row = self._conn.execute(
-            "SELECT MAX(cached_at) FROM " + table  # noqa: S608 — table is internal constant
+            "SELECT MAX(cached_at) FROM " + table  # noqa: S608
         ).fetchone()
         if row and row[0]:
             return time.time() - row[0]
