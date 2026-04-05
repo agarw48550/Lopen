@@ -101,6 +101,25 @@ def _cosine_similarity(vec_a: dict[str, float], vec_b: dict[str, float]) -> floa
 
 
 # ---------------------------------------------------------------------------
+# Complexity scoring keyword sets (used by IntentEngine.complexity_score)
+# ---------------------------------------------------------------------------
+
+_SIMPLE_QUERY_KEYWORDS: frozenset[str] = frozenset({
+    "hello", "hi", "hey", "thanks", "thank you", "bye", "goodbye",
+    "status", "ping", "ok", "yes", "no", "sure", "what time",
+})
+
+_COMPLEX_QUERY_KEYWORDS: frozenset[str] = frozenset({
+    "multi-step", "step by step", "step-by-step", "explain", "research",
+    "implement", "design", "architecture", "analyse", "analyze",
+    "debug", "code", "script", "algorithm", "compare", "evaluate",
+    "review", "translate", "prove", "calculate", "derive",
+    "write a", "build a", "create a", "generate a",
+    "help me understand", "why does", "how does",
+})
+
+
+# ---------------------------------------------------------------------------
 # IntentEngine
 # ---------------------------------------------------------------------------
 
@@ -210,6 +229,62 @@ class IntentEngine:
         """Return the relevance score for a single tool given a query."""
         result = self.analyze(query)
         return result.tool_scores.get(tool_name, 0.0)
+
+    def complexity_score(self, query: str) -> int:
+        """Estimate the complexity of *query* as an integer in [0, 10].
+
+        Scoring bands:
+            0-3  → Simple Q&A (FastLLM handles alone)
+            4-6  → Moderate (FastLLM draft + HeavyLLM refine)
+            7-10 → Complex reasoning (HeavyLLM full answer)
+
+        The score is based on keyword heuristics; no model inference is
+        performed, so it is always fast and works without any LLM.
+
+        Args:
+            query: The user query string.
+
+        Returns:
+            Integer in the range [0, 10].
+        """
+        import re as _re
+        lower = query.lower()
+
+        # Greetings and status checks → very low complexity
+        # Use word-boundary matching to avoid false positives on substrings
+        for kw in _SIMPLE_QUERY_KEYWORDS:
+            pattern = r"\b" + _re.escape(kw) + r"\b"
+            if _re.search(pattern, lower):
+                return 1
+
+        # Count high-complexity indicator keywords (phrase or word-boundary)
+        high_hits = 0
+        for kw in _COMPLEX_QUERY_KEYWORDS:
+            if " " in kw:
+                if kw in lower:
+                    high_hits += 1
+            else:
+                if _re.search(r"\b" + _re.escape(kw) + r"\b", lower):
+                    high_hits += 1
+
+        if high_hits >= 4:
+            return 9
+        if high_hits == 3:
+            return 8
+        if high_hits == 2:
+            return 7
+        if high_hits == 1:
+            return 5
+
+        # Medium heuristics: question words + moderate length
+        word_count = len(query.split())
+        if word_count > 30:
+            return 4
+        if word_count > 15:
+            return 3
+        if word_count > 5:
+            return 2
+        return 1
 
     # ------------------------------------------------------------------
     # Private helpers

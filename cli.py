@@ -995,6 +995,124 @@ def repl(state: CLIState) -> None:
 # Entry point
 # ---------------------------------------------------------------------------
 
+def run_setup() -> None:
+    """Interactive setup wizard — guides the user through configuration.
+
+    Writes final settings to ``~/.lopen/config.json``.
+    """
+    import getpass
+
+    config_dir = Path.home() / ".lopen"
+    config_dir.mkdir(parents=True, exist_ok=True)
+    config_file = config_dir / "config.json"
+
+    # Load existing config if present
+    existing: dict = {}
+    if config_file.exists():
+        try:
+            with config_file.open() as f:
+                existing = json.load(f)
+        except Exception:
+            pass
+
+    cfg: dict = existing.copy()
+
+    print()
+    print(cyan("╔════════════════════════════════════════╗"))
+    print(cyan("║") + bold("      Welcome to Lopen Setup!           ") + cyan("║"))
+    print(cyan("╚════════════════════════════════════════╝"))
+    print()
+
+    # ------------------------------------------------------------------
+    # Section 1 — Notion Integration
+    # ------------------------------------------------------------------
+    print(bold(cyan("1/4 — Notion Integration")))
+    print(dim("  Get your token from https://www.notion.so/my-integrations"))
+    notion_token = input(yellow("  Notion API token (leave blank to skip): ")).strip()
+
+    if notion_token:
+        if notion_token.startswith("secret_") or notion_token.startswith("ntn_"):
+            print(green("  ✔ Token looks valid"))
+            cfg.setdefault("notion", {})["token"] = notion_token
+        else:
+            print(red("  ✘ Token should start with 'secret_' or 'ntn_' — saved anyway"))
+            cfg.setdefault("notion", {})["token"] = notion_token
+
+        db_id = input(yellow("  Notion database ID (optional): ")).strip()
+        if db_id:
+            cfg["notion"]["database_id"] = db_id
+    else:
+        print(dim("  Skipping Notion setup"))
+
+    print()
+
+    # ------------------------------------------------------------------
+    # Section 2 — Voice Setup
+    # ------------------------------------------------------------------
+    print(bold(cyan("2/4 — Voice Setup")))
+    _check_voice_deps()
+    wake_word = input(
+        yellow("  Wake word (default: 'Lopen'): ")
+    ).strip() or "Lopen"
+    cfg.setdefault("voice", {})["wake_word"] = wake_word
+    print(green(f"  ✔ Wake word set to '{wake_word}'"))
+    print()
+
+    # ------------------------------------------------------------------
+    # Section 3 — WhatsApp Integration (optional)
+    # ------------------------------------------------------------------
+    print(bold(cyan("3/4 — WhatsApp Integration")))
+    wa_answer = input(yellow("  Enable WhatsApp integration? [y/N]: ")).strip().lower()
+    if wa_answer == "y":
+        wa_number = input(yellow("  WhatsApp number (e.g. +1234567890): ")).strip()
+        wa_key = input(yellow("  API key / token: ")).strip()
+        cfg.setdefault("whatsapp", {}).update({"number": wa_number, "key": wa_key})
+        print(green("  ✔ WhatsApp config saved"))
+    else:
+        print(dim("  Skipping WhatsApp setup"))
+    print()
+
+    # ------------------------------------------------------------------
+    # Section 4 — SSH Access (optional)
+    # ------------------------------------------------------------------
+    print(bold(cyan("4/4 — SSH Access")))
+    ssh_answer = input(yellow("  Enable SSH access? [y/N]: ")).strip().lower()
+    if ssh_answer == "y":
+        ssh_port_input = input(yellow("  SSH port (default: 2222): ")).strip()
+        try:
+            ssh_port = int(ssh_port_input) if ssh_port_input else 2222
+        except ValueError:
+            ssh_port = 2222
+        cfg.setdefault("ssh", {})["port"] = ssh_port
+        print(green(f"  ✔ SSH port set to {ssh_port}"))
+        print(dim(f"  Add 'Port {ssh_port}' to your ~/.ssh/config if needed"))
+    else:
+        print(dim("  Skipping SSH setup"))
+    print()
+
+    # ------------------------------------------------------------------
+    # Save config
+    # ------------------------------------------------------------------
+    with config_file.open("w") as f:
+        json.dump(cfg, f, indent=2)
+
+    print(green(bold(f"✔ Configuration saved to {config_file}")))
+    print()
+
+
+def _check_voice_deps() -> None:
+    """Print voice dependency status."""
+    import shutil
+    whisper_ok = shutil.which("whisper") is not None or shutil.which("whisper-tiny") is not None
+    piper_ok = shutil.which("piper") is not None
+    print(
+        "  whisper-tiny: " + (green("✔ found") if whisper_ok else yellow("✘ not found (optional)"))
+    )
+    print(
+        "  piper TTS:    " + (green("✔ found") if piper_ok else yellow("✘ not found (optional)"))
+    )
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(
         description="Lopen interactive CLI",
@@ -1009,7 +1127,12 @@ def main() -> None:
     parser.add_argument("--host", default="localhost", help="Orchestrator host (default: localhost)")
     parser.add_argument("--port", type=int, default=8000, help="Orchestrator port (default: 8000)")
     parser.add_argument("--debug", action="store_true", help="Enable debug output")
+    parser.add_argument("--setup", action="store_true", help="Run interactive setup wizard")
     args = parser.parse_args()
+
+    if args.setup:
+        run_setup()
+        return
 
     state = CLIState(host=args.host, port=args.port, debug=args.debug)
     repl(state)

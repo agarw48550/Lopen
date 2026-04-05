@@ -13,6 +13,9 @@ from agent_core.argument_composer import ArgumentComposer
 from agent_core.analytics import Analytics
 from agent_core.sandbox import ConfirmationGate, ConfirmationRequest
 
+from agent_core.autonomous_tasks import AutonomousTaskScheduler
+from agent_core.learning import AgentLearner
+
 __all__ = [
     "Planner",
     "Intent",
@@ -32,4 +35,6 @@ __all__ = [
     "Analytics",
     "ConfirmationGate",
     "ConfirmationRequest",
+    "AutonomousTaskScheduler",
+    "AgentLearner",
 ]
