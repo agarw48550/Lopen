@@ -1,0 +1,49 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"
+  "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  lopen-maintenance.plist — macOS Launch Agent for daily Lopen maintenance
+
+  Installation (run ONCE after installing Lopen):
+    cp install/lopen-maintenance.plist ~/Library/LaunchAgents/com.lopen.maintenance.plist
+    # Edit REPLACE_WITH_YOUR_USERNAME below
+    launchctl load ~/Library/LaunchAgents/com.lopen.maintenance.plist
+
+  What this does:
+    - Runs system_health/maintenance.sh every day at 03:00 AM
+    - Clears caches, vacuums SQLite, rotates logs, reports disk usage
+    - Logs output to ~/Library/Logs/Lopen/maintenance.log
+-->
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>com.lopen.maintenance</string>
+
+  <key>ProgramArguments</key>
+  <array>
+    <string>/bin/bash</string>
+    <string>/Users/REPLACE_WITH_YOUR_USERNAME/Lopen/system_health/maintenance.sh</string>
+  </array>
+
+  <key>WorkingDirectory</key>
+  <string>/Users/REPLACE_WITH_YOUR_USERNAME/Lopen</string>
+
+  <!-- Run at 03:00 AM every day -->
+  <key>StartCalendarInterval</key>
+  <dict>
+    <key>Hour</key>
+    <integer>3</integer>
+    <key>Minute</key>
+    <integer>0</integer>
+  </dict>
+
+  <key>StandardOutPath</key>
+  <string>/Users/REPLACE_WITH_YOUR_USERNAME/Library/Logs/Lopen/maintenance.log</string>
+  <key>StandardErrorPath</key>
+  <string>/Users/REPLACE_WITH_YOUR_USERNAME/Library/Logs/Lopen/maintenance-error.log</string>
+
+  <!-- Run once at load time if the last scheduled run was missed -->
+  <key>RunAtLoad</key>
+  <false/>
+</dict>
+</plist>

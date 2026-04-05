@@ -1,0 +1,81 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"
+  "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  lopen.plist — macOS Launch Agent for Lopen (main orchestrator service)
+
+  Installation:
+    cp install/lopen.plist ~/Library/LaunchAgents/com.lopen.agent.plist
+    # Edit the paths below to match your actual Lopen installation directory
+    launchctl load ~/Library/LaunchAgents/com.lopen.agent.plist
+
+  Uninstall:
+    launchctl unload ~/Library/LaunchAgents/com.lopen.agent.plist
+    rm ~/Library/LaunchAgents/com.lopen.agent.plist
+
+  What this does:
+    - Starts the Lopen orchestrator automatically at login
+    - Restarts it automatically if it crashes (backoff: 10s)
+    - Logs stdout/stderr to ~/Library/Logs/Lopen/
+    - Runs with KeepAlive so it stays running 24/7
+    - Throttle interval prevents rapid restart loops
+
+  See: docs/INSTALL_LAUNCHD.md for full setup instructions
+-->
+<plist version="1.0">
+<dict>
+  <!-- Unique service identifier -->
+  <key>Label</key>
+  <string>com.lopen.agent</string>
+
+  <!-- Command to run — adjust LOPEN_DIR to your actual path -->
+  <key>ProgramArguments</key>
+  <array>
+    <!-- Uses the venv Python to run the orchestrator via uvicorn -->
+    <string>/Users/REPLACE_WITH_YOUR_USERNAME/Lopen/.venv/bin/python3</string>
+    <string>-m</string>
+    <string>uvicorn</string>
+    <string>orchestrator:app</string>
+    <string>--host</string>
+    <string>127.0.0.1</string>
+    <string>--port</string>
+    <string>8000</string>
+    <string>--log-level</string>
+    <string>info</string>
+  </array>
+
+  <!-- Working directory — must be your Lopen repo root -->
+  <key>WorkingDirectory</key>
+  <string>/Users/REPLACE_WITH_YOUR_USERNAME/Lopen</string>
+
+  <!-- Environment variables -->
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>LOPEN_ENV</key>
+    <string>production</string>
+    <!-- Additional vars are loaded from .env by the orchestrator -->
+  </dict>
+
+  <!-- Keep the service running 24/7 -->
+  <key>KeepAlive</key>
+  <true/>
+
+  <!-- Wait 10 seconds before restarting after a crash -->
+  <key>ThrottleInterval</key>
+  <integer>10</integer>
+
+  <!-- Start at login (not at system boot — runs as user process) -->
+  <key>RunAtLoad</key>
+  <true/>
+
+  <!-- Log files -->
+  <key>StandardOutPath</key>
+  <string>/Users/REPLACE_WITH_YOUR_USERNAME/Library/Logs/Lopen/orchestrator.log</string>
+  <key>StandardErrorPath</key>
+  <string>/Users/REPLACE_WITH_YOUR_USERNAME/Library/Logs/Lopen/orchestrator-error.log</string>
+
+  <!-- Nice value: run at slightly lower priority to not affect daily use -->
+  <key>Nice</key>
+  <integer>5</integer>
+</dict>
+</plist>
